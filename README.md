@@ -36,18 +36,22 @@ hugo server -D
 
 ### Vercel 部署（推荐）
 
-1. Fork 本仓库到你的 GitHub
-2. 在 Vercel 导入项目
-3. Vercel 会自动检测 Hugo 并部署
-4. 绑定自定义域名（可选）
+本博客已配置自动部署到 Vercel：
 
-### 手动部署
+1. 推送代码到 GitHub
+2. Vercel 自动检测并部署
+3. 1-2 分钟后即可访问
+
+### 快速更新博客
 
 ```powershell
-# 构建静态文件
-hugo --minify
+# 方式 1：使用更新脚本（推荐）
+.\update.ps1 "更新文章内容"
 
-# public/ 目录即为生成的静态网站
+# 方式 2：手动提交
+git add .
+git commit -m "更新内容"
+git push origin main
 ```
 
 ## 📝 写作
