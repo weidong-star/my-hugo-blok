@@ -2,6 +2,9 @@
 /public/
 /resources/_gen/
 
+# Hugo 可执行文件（太大，Vercel 会自动安装）
+/bin/hugo.exe
+
 # 操作系统文件
 .DS_Store
 Thumbs.db
