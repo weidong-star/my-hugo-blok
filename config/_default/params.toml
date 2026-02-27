@@ -1,0 +1,188 @@
+# -- Theme Options --
+# Blowfish 主题核心外观与功能控制面板
+# 所有配置项均在 [params] 下（Hugo 自动识别）
+# 官方文档：https://blowfish.page/docs/configuration/#theme-parameters
+
+# ==================== 全局外观 ====================
+colorScheme = "blowfish"                    # 主题配色方案：blowfish（默认蓝白）、avocado、cupcake 等
+defaultAppearance = "dark"                 # 默认主题模式：light（浅色）| dark（深色）
+autoSwitchAppearance = true                 # 自动根据系统偏好切换明暗模式
+
+enableA11y = false                          # 无障碍模式（高对比度、键盘导航增强）
+enableSearch = true                         # 启用全文搜索（Fuse.js 本地索引）
+enableCodeCopy = true                      # 代码块右上角“复制”按钮
+
+replyByEmail = false                        # 文章底部“邮件回复”按钮（需配置 SMTP）
+
+# mainSections = ["section1", "section2"]   # 定义“主页文章流”来自哪些 section
+# robots = ""                               # 自定义 robots meta 标签
+
+# ==================== 图片优化 ====================
+disableImageOptimization = false            # 禁用 Hugo 自动图片压缩/格式转换（WebP）
+disableImageOptimizationMD = false          # 禁用 Markdown 内图片优化
+disableTextInHeader = false                 # 首页 hero 区是否允许叠加文字
+# backgroundImageWidth = 1200               # 背景图最大宽度（性能优化）
+
+defaultBackgroundImage = "images/blokImg/background.svg"       # 全站默认背景图（用于 hero、card 等）
+# defaultFeaturedImage = "images/blokImg/office.png"        # 文章无图时使用的默认特色图
+# defaultSocialImage = "/android-chrome-512x512.png"  # 社交分享卡片默认图（OG）
+hotlinkFeatureImage = false                 # 是否允许外链特色图（CDN 加速）
+# imagePosition = "50% 50%"                 # 特色图裁剪锚点（CSS background-position）
+
+# highlightCurrentMenuArea = true           # 当前页面菜单高亮背景
+# smartTOC = true                           # 智能目录（随滚动高亮当前章节）
+# smartTOCHideUnfocusedChildren = true      # 目录折叠未聚焦子项
+
+fingerprintAlgorithm = "sha512"             # 资源完整性校验算法（Subresource Integrity）
+                                            # 可选：sha512（最安全）、sha384、sha256
+
+giteaDefaultServer = "https://git.fsfe.org" # Gitea 实例默认地址（用于短代码）
+forgejoDefaultServer = "https://v11.next.forgejo.org"  # Forgejo 默认地址
+
+# ==================== [header] 页眉 ====================
+[header]
+  layout = "fixed-fill"                          # 页眉样式：
+                                            # - basic: 简洁（logo + 菜单）
+                                            # - fixed: 固定顶部
+                                            # - fixed-fill: 固定 + 背景填充
+                                            # - fixed-gradient: 固定 + 渐变
+                                            # - fixed-fill-blur: 固定 + 毛玻璃
+
+# ==================== [footer] 页脚 ====================
+[footer]
+  showMenu = true                           # 显示页脚菜单（由 [[footer]] 配置）
+  showCopyright = true                      # 显示版权信息
+  showThemeAttribution = true               # 显示 “Powered by Blowfish”
+  showAppearanceSwitcher = true             # 明暗模式切换按钮
+  showScrollToTop = true                    # 返回顶部按钮
+
+# ==================== [homepage] 首页布局 ====================
+[homepage]
+  layout = "background"                        # 首页样式：
+                                            # - page: 普通页面
+                                            # - profile: 个人资料卡（头像+简介）
+                                            # - hero: 大图英雄区
+                                            # - card: 卡片流
+                                            # - background: 全屏背景
+                                            # - custom: 自定义布局
+  homepageImage = "images/blokImg/background.svg"             # hero/card 布局使用的图片
+  showRecent = true                        # 是否显示“最新文章”
+  showRecentItems = 10                       # 最新文章数量
+  showMoreLink = false                      # “查看更多”按钮
+  showMoreLinkDest = "/posts/"              # 更多按钮跳转地址
+  cardView = false                          # 文章列表使用卡片视图
+  cardViewScreenWidth = true               # 卡片视图占满屏幕宽度
+  layoutBackgroundBlur = true              # 背景图毛玻璃效果（仅 background 布局）
+  disableHeroImageFilter = false            # 禁用 hero 图层滤镜（暗化）
+
+# ==================== [article] 文章页 ====================
+[article]
+  showDate = true                           # 显示发布日期
+  showViews = false                         # 显示阅读量（需 analytics）
+  showLikes = false                         # 显示点赞（需 firebase）
+  showDateOnlyInArticle = false             # 仅在文章内显示日期（列表页隐藏）
+  showDateUpdated = false                   # 显示更新日期
+  showAuthor = true                         # 显示作者
+  showAuthorBottom = true                # 作者信息放文章底部
+  showHero = true                          # 显示特色图（hero）
+  heroStyle = "background"                       # hero 样式：basic, big, background, thumbAndBackground
+  layoutBackgroundBlur = true               # 背景图毛玻璃（background 模式）
+  layoutBackgroundHeaderSpace = true        # 背景图与标题留白
+  showBreadcrumbs = false                   # 面包屑导航
+  showDraftLabel = true                     # 草稿标签
+  showEdit = false                          # “编辑此页”按钮
+  # editURL = "https://github.com/username/repo/"
+  editAppendPath = true                     # 编辑链接附加文件路径
+  seriesOpened = false                      # 系列文章默认展开
+  showHeadingAnchors = true                 # 标题锚点（#）
+  showPagination = true                     # 上下篇导航
+  invertPagination = false                  # 上下篇顺序反转
+  showReadingTime = true                    # 阅读时长
+  showTableOfContents = true               # 文章目录（TOC）
+  # showRelatedContent = false              # 相关文章
+  # relatedContentLimit = 3                 # 相关文章数量
+  showTaxonomies = true                    # 显示分类+标签（全显示）
+  showCategoryOnly = false                  # 仅显示分类（与上面互斥）
+  showAuthorsBadges = false                 # 作者头像徽章
+  showWordCount = true                      # 字数统计
+  # sharingLinks = [ "linkedin", "twitter", ... ]  # 分享按钮
+  showZenMode = false                       # 禅模式（隐藏侧边栏）
+
+# ==================== [list] 列表页（归档、分类等） ====================
+[list]
+  showHero = true
+  heroStyle = "background"
+  layoutBackgroundBlur = true
+  layoutBackgroundHeaderSpace = true
+  showBreadcrumbs = false
+  showSummary = false                       # 显示摘要
+  showViews = false
+  showLikes = false
+  showTableOfContents = false
+  showCards = false                         # 卡片式列表
+  orderByWeight = false                     # 按 weight 排序（否则按日期）
+  groupByYear = true                        # 按年份分组
+  cardView = false
+  cardViewScreenWidth = false
+  constrainItemsWidth = false               # 限制项目宽度
+
+# ==================== [sitemap] 站点地图排除 ====================
+[sitemap]
+  excludedKinds = ["taxonomy", "term"]      # 不在 sitemap 中包含分类/标签页
+
+# ==================== [taxonomy] 分类法页面（/categories/） ====================
+[taxonomy]
+  showTermCount = true                      # 显示每个分类下的文章数
+  showHero = true
+  heroStyle = "background"
+  showBreadcrumbs = false
+  showViews = false
+  showLikes = false
+  showTableOfContents = false
+  cardView = false
+
+# ==================== [term] 术语页（/categories/xxx） ====================
+[term]
+  showHero = true
+  heroStyle = "background"
+  showBreadcrumbs = false
+  showViews = false
+  showLikes = false
+  showTableOfContents = true                # 分类内文章列表显示目录
+  groupByYear = false
+  cardView = false
+  cardViewScreenWidth = false
+
+# ==================== 第三方服务（全部可选） ====================
+[firebase]
+  # apiKey = "XXXXXX"                       # Firebase 实时数据库（用于点赞/评论）
+  # ...
+
+[fathomAnalytics]
+  # site = "ABC12345"                       # Fathom 轻量分析
+  # domain = "llama.yoursite.com"
+
+[umamiAnalytics]
+  # websiteid = "ABC12345"                  # Umami 开源分析
+  # domain = "llama.yoursite.com"
+
+[selineAnalytics]
+  # token = "XXXXXX"                        # Seline 分析
+
+[buymeacoffee]
+  # identifier = ""                         # 打赏按钮
+  # globalWidget = true
+
+[verification]
+  # google = ""                             # Google Search Console 验证
+  # bing = ""
+  # pinterest = ""
+  # yandex = ""
+  # fediverse = ""
+
+[rssnext]
+  # feedId = ""                             # RSS 增强服务
+  # userId = ""
+
+[advertisement]
+  # adsense = ""                            # Google AdSense ID

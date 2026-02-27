@@ -1,0 +1,29 @@
+/* assets/css/custom.css */
+
+#cusdis_thread {
+    /* 确保这里没有固定的 height 或 max-height */
+    height: auto !important;
+    max-height: unset !important; /* 解除可能的最大高度限制 */
+    overflow: visible !important; /* 允许内容溢出，这样就不会有滚动条 */
+    /* 其他样式保持不变 */
+    background-color: #282c34 !important;
+    color: #abb2bf !important;
+    padding: 20px !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* 还需要检查 Cusdis 内部生成评论列表的容器 */
+/* 假设 Cusdis 评论列表容器的类是 .cusdis-comments-list */
+/* 你需要使用开发者工具来确认准确的类名 */
+.cusdis-comments-list {
+    height: auto !important;
+    max-height: unset !important;
+    overflow: visible !important;
+}
+
+.cusdis-comment-main-wrapper {
+    height: auto !important;
+    max-height: unset !important;
+    overflow: visible !important; /* 关键！ */
+}

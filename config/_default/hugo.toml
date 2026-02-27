@@ -1,0 +1,128 @@
+# -- Site Configuration --
+# Refer to the theme docs for more details about each of these parameters.
+# https://blowfish.page/docs/getting-started/
+
+# 使用的 Hugo 主题名称
+# 必须与 themes/ 目录下的文件夹名一致
+# 当前使用的是 Blowfish 主题（一个现代、响应式、功能丰富的 Hugo 主题）
+theme = "blowfish" # UNCOMMENT THIS LINE
+
+# 站点基础 URL（部署后访问的域名）
+# 示例：https://example.com/ 或 https://username.github.io/
+# 开发时可留空或设为 http://localhost:1313/
+# baseURL = "https://your_domain.com/"
+
+# 默认内容语言（Hugo 多语言机制的核心）
+# 所有未指定语言的文件默认归为此语言
+# 这里设为 "zh" 表示默认是中文
+# 注意：必须与 config/_default/languages.toml 中的 languageCode 匹配
+defaultContentLanguage = "zh"
+
+# 是否对列表标题（如标签页、分类页）进行复数处理
+# 英文中 "Tag" vs "Tags"，中文不需要复数变化
+# 设置为 false 可避免 Hugo 自动加 "s"
+# pluralizeListTitles = "true" # hugo function useful for non-english languages
+
+# 是否生成 robots.txt 文件
+# 用于告诉搜索引擎哪些页面可以抓取
+# 建议生产环境开启
+enableRobotsTXT = true
+
+# 文章摘要长度（单位：字数）
+# 0 = 使用文章中 <!--more--> 分隔符前的部分作为摘要
+# 若文章无 <!--more-->，Hugo 会截取前 summaryLength 个字符
+# 设置为 0 可完全依赖手动控制摘要
+summaryLength = 0
+
+# 是否构建草稿内容（status: draft）
+# 开发时设为 true 可预览草稿，发布时必须为 false
+buildDrafts = false
+
+# 是否构建未来日期的文章（publishDate 在未来）
+# 设为 true 可用于定时发布，发布前保持 false
+buildFuture = false
+
+# 是否启用 Emoji 短代码支持
+# 允许在 Markdown 中使用 :smile: 等表情符号
+# 依赖 Hugo 的 emoji 渲染器
+enableEmoji = true
+
+# Google Analytics 4 跟踪 ID（GA4）
+# 格式：G-XXXXXXXXXX
+# 开启后会在 <head> 中自动插入跟踪代码
+# googleAnalytics = "G-XXXXXXXXX"
+
+# ==================== [pagination] 分页配置 ====================
+[pagination]
+  # 每页显示的文章数量
+  # 太大影响加载速度，太小影响用户体验
+  # 100 适合博客归档页（Blowfish 支持无限滚动？需确认）
+  pagerSize = 100
+
+# ==================== [imaging] 图片处理配置 ====================
+[imaging]
+  # 图片缩放时的锚点（当目标尺寸与原图比例不一致时）
+  # 'Center' = 居中裁剪（推荐，避免边缘内容丢失）
+  # 其他选项：Smart, TopLeft, BottomRight 等
+  anchor = 'Center'
+
+# ==================== [taxonomies] 分类法定义 ====================
+# Hugo 默认只有 tag 和 category，这里扩展了 author 和 series
+[taxonomies]
+  tag = "tags"          # 标签 → /tags/
+  category = "categories" # 分类 → /categories/
+  author = "authors"    # 作者 → /authors/
+  series = "series"     # 系列 → /series/
+
+# ==================== [sitemap] 站点地图 ====================
+[sitemap]
+  # 更新频率提示（给搜索引擎参考）
+  # 可选：always, hourly, daily, weekly, monthly, yearly, never
+  changefreq = 'daily'
+  # 站点地图文件名
+  filename = 'sitemap.xml'
+  # 站点优先级（0.0 - 1.0）
+  priority = 0.5
+
+# ==================== [outputs] 输出格式 ====================
+# 定义不同页面类型的输出格式
+[outputs]
+  # 首页支持多种格式，便于 RSS 订阅和搜索索引
+  home = ["HTML", "RSS", "JSON"]  # HTML=网页, RSS=订阅, JSON=搜索索引（如 Algolia）
+
+# ==================== [related] 相关文章算法 ====================
+# 控制“相关文章”功能的匹配逻辑
+[related]
+  # 相关性阈值（0-100，值越小越严格）
+  # 0 = 只要有任意共同点就显示（当前设置）
+  threshold = 0
+  # 是否忽略大小写匹配标签/分类
+  toLower = false
+
+  # 相关性索引配置（权重越高越重要）
+  [[related.indices]]
+    name = "tags"         # 通过标签匹配
+    weight = 100          # 标签最重要
+
+  [[related.indices]]
+    name = "categories"   # 通过分类匹配
+    weight = 100          # 分类同等重要
+
+  [[related.indices]]
+    name = "series"       # 通过系列匹配
+    weight = 50           # 系列文章优先
+
+  [[related.indices]]
+    name = "authors"      # 通过作者匹配
+    weight = 20           # 同作者文章有一定相关性
+
+  [[related.indices]]
+    name = "date"         # 通过发布日期接近度
+    weight = 10           # 近期文章略相关
+
+  [[related.indices]]
+    # 是否对该索引应用过滤器（如忽略某些内容）
+    applyFilter = false
+    name = 'fragmentrefs' # 片段引用（Blowfish 特色功能，用于短篇引用）
+    type = 'fragments'    # 特殊类型：fragments（非标准文章）
+    weight = 10           # 引用片段也算轻度相关

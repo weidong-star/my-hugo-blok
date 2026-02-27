@@ -1,0 +1,57 @@
+# -- Markup --
+# 这些设置是 Blowfish 主题正常运行所必需的 Markdown 渲染配置
+# 影响：文章渲染、数学公式、代码高亮、目录生成等
+# 文档参考：https://blowfish.page/docs/markup/
+
+# ==================== [goldmark] Hugo 默认 Markdown 渲染器 ====================
+[goldmark]
+  # ------------------- [parser] 解析器设置 -------------------
+  [goldmark.parser]
+    # 是否将独立的图片（无链接、无说明）包裹在 <p> 标签中
+    # Blowfish 主题需要设置为 false，否则图片会被错误地包在段落里，导致样式错乱
+    # false = 直接输出 <img>，主题可自由控制布局（如居中、卡片等）
+    wrapStandAloneImageWithinParagraph = false
+
+  # ------------------- [renderer] 渲染器设置 -------------------
+  [goldmark.renderer]
+    # 是否允许“unsafe” HTML（即不转义原始 HTML）
+    # true = 允许在 Markdown 中直接写 <div>、<script>、<style> 等标签
+    # 注意：生产环境有 XSS 风险！仅在可信内容时启用
+    # Blowfish 主题依赖此功能实现短代码、自定义块等
+    unsafe = true
+
+  # ------------------- [extensions] 扩展功能 -------------------
+  [goldmark.extensions]
+    # ---------- passthrough：原始内容透传（用于数学公式） ----------
+    [goldmark.extensions.passthrough]
+      # 启用数学公式原始透传（不被 Markdown 解析）
+      # 配合 KaTeX 或 MathJax 使用
+      enable = true
+
+      # 定义数学公式的识别边界
+      [goldmark.extensions.passthrough.delimiters]
+        # 块级公式（独占一行）
+        # \[ ... \] 和 $$ ... $$ 都会被识别为 LaTeX 公式
+        block = [['\[', '\]'], ['$$', '$$']]
+
+        # 行内公式
+        # \( ... \) 会被渲染为行内数学
+        inline = [['\(', '\)']]
+
+# ==================== [highlight] 代码高亮配置 ====================
+[highlight]
+  # 是否为代码块添加 CSS 类（.highlight .chroma 等）
+  # false = 所有样式内联到 <style> 标签（减少 HTTP 请求，但体积大）
+  # Blowfish 主题使用外部 CSS（.chroma），所以必须为 false
+  noClasses = false
+
+# ==================== [tableOfContents] 文章目录（TOC） ====================
+[tableOfContents]
+  # 目录开始的标题级别（包含）
+  # 2 = 从 <h2> 开始生成目录（推荐，跳过文章标题 <h1>）
+  startLevel = 2
+
+  # 目录结束的标题级别（包含）
+  # 4 = 包含 <h2>、<h3>、<h4>，忽略 <h5> 和 <h6>
+  # 太深会导致目录过长，影响体验
+  endLevel = 4

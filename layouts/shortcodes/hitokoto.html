@@ -1,0 +1,19 @@
+{{/* Shortcode: hitokoto
+Usage: {{< hitokoto enable=true show_author=true api="https://v1.hitokoto.cn/?c=d&c=i" typing_speed=100 backing_speed=80 starting_delay=500 backing_delay=1500 loop=true smart_backspace=true >}}
+*/}}
+<div id="hitokoto-subtitle" class="text-neutral-700 dark:text-neutral-300"></div>
+{{ $js := resources.Get "js/hitokoto.js" | resources.Minify | resources.Fingerprint (site.Params.fingerprintAlgorithm | default "sha512") }}
+<script
+  src="{{ $js.RelPermalink }}"
+  integrity="{{ $js.Data.Integrity }}"
+  data-selector="#hitokoto-subtitle"
+  data-api="{{ .Get "api" | default "https://v1.hitokoto.cn/?c=d&c=i" }}"
+  data-show_author="{{ .Get "show_author" | default "true" }}"
+  data-typing_speed="{{ .Get "typing_speed" | default "100" }}"
+  data-backing_speed="{{ .Get "backing_speed" | default "80" }}"
+  data-starting_delay="{{ .Get "starting_delay" | default "500" }}"
+  data-backing_delay="{{ .Get "backing_delay" | default "1500" }}"
+  data-loop="{{ .Get "loop" | default "true" }}"
+  data-texts="{{ .Get "texts" | default "" }}"
+></script>
+

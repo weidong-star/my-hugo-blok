@@ -1,0 +1,130 @@
+# -- Main Menu --
+# 主导航菜单：显示在页面顶部的头部（Header）
+# 每个 [[main]] 代表一个菜单项
+# 支持多级嵌套（通过 parent 字段）
+# 文档参考：https://blowfish.page/docs/menus/
+
+# 可用的字段说明：
+#   name      = 显示的文字（必填）
+#   pageRef   = 指向站内页面（如 posts、tags、about）（推荐）
+#   url       = 外部链接（例如 https://github.com）
+#   title     = 鼠标悬停提示（可选）
+#   weight    = 排序权重（数字越小越靠前，默认按字母排序）
+#   parent    = 父菜单名称（用于创建下拉子菜单）
+#   identifier = 自定义 ID（用于 CSS 样式或 JS 控制）
+
+# ==================== 示例：完整主菜单 ====================
+
+# 主菜单
+[[main]]
+  name = "首页"
+  pageRef = "/"
+  weight = 10
+
+[[main]]
+  name = "工作分享"
+  weight = 20
+
+[[main]]
+  name = "蒙速办"
+  parent = "工作分享"
+  url = "/categories/工作分享/蒙速办/"
+  weight = 10
+
+[[main]]
+  name = "数据库"
+  parent = "工作分享"
+  url = "/categories/工作分享/数据库/"
+  weight = 20
+
+[[main]]
+  name = "排队叫号"
+  parent = "工作分享"
+  url = "/categories/工作分享/排队叫号/"
+  weight = 30
+
+[[main]]
+  name = "链条系统"
+  parent = "工作分享" 
+  url = "/categories/工作分享/链条系统/"
+  weight = 40 
+
+[[main]]
+  name = "网办系统"
+  parent = "工作分享"
+  url = "/categories/工作分享/网办系统/"
+  weight = 50
+
+[[main]]
+  name = "电子监察"
+  parent = "工作分享"
+  url = "/categories/工作分享/电子监察/"
+  weight = 60
+
+[[main]]
+  name = "电子证照"
+  parent = "工作分享"
+  url = "/categories/工作分享/电子证照/"
+  weight = 70
+
+[[main]]
+  name = "事项系统"
+  parent = "工作分享"
+  url = "/categories/工作分享/事项系统/"
+  weight = 80
+
+[[main]]
+  name = "个人分享"
+  weight = 30
+
+[[main]]
+  name = "技术分享"
+  parent = "个人分享"
+  url = "/categories/个人分享/技术分享/"
+  weight = 20
+
+[[main]] 
+  name = "工具分享"
+  parent = "个人分享"
+  url = "/categories/工具分享/"
+  weight = 20
+
+[[main]]
+  name = "歌词分享"
+  parent = "个人分享"
+  url = "/categories/个人分享/歌词分享/"
+  weight = 20
+
+[[main]]
+  name = "分类"
+  pageRef = "categories"
+  weight = 40
+
+[[main]]
+  name = "标签"
+  pageRef = "tags"
+  weight = 50
+
+[[main]]
+  name = "关于"
+  pageRef = "about"
+  weight = 60
+
+# 页脚菜单
+#[[footer]]
+#  name = "RSS 订阅"
+#  pageRef = "index.xml"
+#  pre = "rss"
+#  weight = 10
+
+[[footer]]
+  name = "隐私政策"
+  pageRef = "privacy"
+  weight = 20
+
+[[footer]]
+  name = "Powered by Hugo & Blowfish"
+  url = "https://gohugo.io"
+  weight = 30
+
+

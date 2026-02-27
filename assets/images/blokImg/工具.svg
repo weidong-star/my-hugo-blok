@@ -1,0 +1,39 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="toolGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="100" cy="100" r="90" fill="url(#toolGradient)" opacity="0.1"/>
+  
+  <!-- Wrench tool -->
+  <g transform="translate(100,100)">
+    <!-- Wrench handle -->
+    <rect x="-8" y="-60" width="16" height="80" rx="8" fill="url(#toolGradient)"/>
+    
+    <!-- Wrench head -->
+    <ellipse cx="0" cy="-65" rx="25" ry="15" fill="url(#toolGradient)"/>
+    <ellipse cx="0" cy="-65" rx="15" ry="8" fill="white"/>
+    
+    <!-- Screwdriver -->
+    <g transform="rotate(45)">
+      <rect x="20" y="-3" width="40" height="6" rx="3" fill="#ffa726"/>
+      <rect x="55" y="-2" width="15" height="4" rx="2" fill="#ff7043"/>
+    </g>
+    
+    <!-- Hammer -->
+    <g transform="rotate(-45)">
+      <rect x="15" y="-2" width="35" height="4" rx="2" fill="#8d6e63"/>
+      <rect x="45" y="-8" width="20" height="16" rx="4" fill="#5d4037"/>
+    </g>
+  </g>
+  
+  <!-- Decorative elements -->
+  <circle cx="50" cy="50" r="3" fill="url(#toolGradient)" opacity="0.6"/>
+  <circle cx="150" cy="60" r="2" fill="url(#toolGradient)" opacity="0.4"/>
+  <circle cx="160" cy="140" r="4" fill="url(#toolGradient)" opacity="0.5"/>
+  <circle cx="40" cy="160" r="2.5" fill="url(#toolGradient)" opacity="0.3"/>
+</svg>

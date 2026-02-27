@@ -1,0 +1,25 @@
+# Hugo 生成文件
+/public/
+/resources/_gen/
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+
+# 编辑器文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 临时文件
+*.log
+*.tmp
+
+# Node modules (如果使用)
+node_modules/
+
+# Vercel
+.vercel
+
