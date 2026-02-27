@@ -1,55 +1,67 @@
-# update.ps1 - 一键更新博客到 Vercel
-# 使用方法: .\update.ps1 "提交信息"
+# update.ps1 - Update blog to Vercel
+# Usage: .\update.ps1 "commit message"
 
 param(
     [string]$message = "Update blog content"
 )
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  博客更新脚本 - Vercel 自动部署" -ForegroundColor Cyan
+Write-Host "  Blog Update Script - Vercel Deploy" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# 检查是否有未提交的更改
-Write-Host "检查文件更改..." -ForegroundColor Yellow
+# Check for uncommitted changes
+Write-Host "Checking for changes..." -ForegroundColor Yellow
 $status = git status --porcelain
 
 if ([string]::IsNullOrEmpty($status)) {
-    Write-Host "没有需要提交的更改。" -ForegroundColor Green
+    Write-Host "No changes to commit." -ForegroundColor Green
     exit 0
 }
 
-# 显示更改的文件
-Write-Host "以下文件已更改:" -ForegroundColor Green
+# Show changed files
+Write-Host "Changed files:" -ForegroundColor Green
 git status --short
 
 Write-Host ""
-Write-Host "准备提交更改..." -ForegroundColor Yellow
+Write-Host "Preparing to commit..." -ForegroundColor Yellow
 
-# 添加所有更改
+# Add all changes
 git add .
 
-# 提交更改
-Write-Host "提交信息: $message" -ForegroundColor Cyan
+# Check if git add succeeded
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Failed to add files!" -ForegroundColor Red
+    exit 1
+}
+
+# Commit changes
+Write-Host "Commit message: $message" -ForegroundColor Cyan
 git commit -m "$message"
 
-# 推送到 GitHub
+# Check if commit succeeded
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Commit failed! Please check Git configuration." -ForegroundColor Red
+    exit 1
+}
+
+# Push to GitHub
 Write-Host ""
-Write-Host "正在推送到 GitHub..." -ForegroundColor Yellow
+Write-Host "Pushing to GitHub..." -ForegroundColor Yellow
 git push origin main
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Green
-    Write-Host "  ✓ 更新成功！" -ForegroundColor Green
+    Write-Host "  Success!" -ForegroundColor Green
     Write-Host "========================================" -ForegroundColor Green
     Write-Host ""
-    Write-Host "Vercel 将自动部署你的更改，请稍等 1-2 分钟。" -ForegroundColor Cyan
-    Write-Host "访问: https://vercel.com/dashboard 查看部署状态" -ForegroundColor Cyan
+    Write-Host "Vercel will auto-deploy in 1-2 minutes." -ForegroundColor Cyan
+    Write-Host "Visit: https://vercel.com/dashboard" -ForegroundColor Cyan
+    Write-Host "Or: https://wdblok.vip" -ForegroundColor Cyan
     Write-Host ""
 } else {
     Write-Host ""
-    Write-Host "推送失败，请检查网络连接或 Git 配置。" -ForegroundColor Red
+    Write-Host "Push failed! Check network or Git config." -ForegroundColor Red
     exit 1
 }
-
