@@ -2,6 +2,7 @@
 
 title: 【WechatRealFriends】一个检测微信单向好友工具
 date: 2025-02-21T10:00:00+08:00
+draft: true
 thumbnail: "/images/blokImg/微信-thumb.jpg"          # 列表页缩略图
 cover:
   image: "/images/blokImg/微信.png"          # 文章页封面
