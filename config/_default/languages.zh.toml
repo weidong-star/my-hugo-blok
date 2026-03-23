@@ -65,7 +65,7 @@ title = "Weidong's Blok"
 # Blowfish 主题支持配置作者信息，显示在文章、关于页等位置
 # 以下整个区块被注释掉了，若需启用请取消注释并填写
  [params.author]
-   name = "Weidong's Blok"                    # 作者姓名
+   name = "Weidong's Blok 伟东"                    # 作者姓名
    email = "weidong_321@163.com"            # 邮箱（用于联系表单等）
    image = "img/blowfish_logo.png"            # 作者头像
    imageQuality = 96                          # 图片质量（1-100），仅对 WebP 等有效
