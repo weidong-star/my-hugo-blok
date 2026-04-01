@@ -74,6 +74,12 @@
   weight = 80
 
 [[main]]
+  name = "基础平台"
+  parent = "工作分享"
+  url = "/categories/工作分享/基础平台/"
+  weight = 90
+
+[[main]]
   name = "个人分享"
   weight = 30
 
