@@ -92,7 +92,7 @@
 [[main]] 
   name = "工具分享"
   parent = "个人分享"
-  url = "/categories/工具分享/"
+  url = "/categories/个人分享/工具分享/"
   weight = 20
 
 [[main]]
