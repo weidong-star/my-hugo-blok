@@ -21,7 +21,7 @@
   pageRef = "/"
   weight = 10
 
-[[main]]
+[[main]] 
   name = "工作分享"
   weight = 20
 

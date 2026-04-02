@@ -3,14 +3,14 @@
 title: 断网服务器自救指南：挂载 CentOS ISO 镜像，打造离线本地 YUM 源
 date: 2024-12-19T18:00:00+08:00
 # thumbnail: /images/blokImg/centos.png
-categories:
-  - 技术分享
-tags:
-  - CentOS
-  - YUM
-  - 离线安装
-  - 服务器运维
-  - Linux
+categories: 
+    - 个人分享/技术分享
+tags: 
+    - CentOS
+    - YUM
+    - 离线安装
+    - 服务器运维
+    - Linux
 excerpt: 在断网环境下如何安装软件？本文详细介绍如何通过挂载CentOS ISO镜像创建离线本地YUM源，让断网服务器也能正常使用yum命令安装软件，解决内网环境下的软件安装难题。
 ---
 
