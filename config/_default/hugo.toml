@@ -10,7 +10,7 @@ theme = "blowfish" # UNCOMMENT THIS LINE
 # 站点基础 URL（部署后访问的域名）
 # 示例：https://example.com/ 或 https://username.github.io/
 # 开发时可留空或设为 http://localhost:1313/
-# baseURL = "https://your_domain.com/"
+baseURL = "https://www.wdblok.vip/"
 
 # 默认内容语言（Hugo 多语言机制的核心）
 # 所有未指定语言的文件默认归为此语言
@@ -57,7 +57,7 @@ enableEmoji = true
   # 每页显示的文章数量
   # 太大影响加载速度，太小影响用户体验
   # 100 适合博客归档页（Blowfish 支持无限滚动？需确认）
-  pagerSize = 100
+  pagerSize = 10
 
 # ==================== [imaging] 图片处理配置 ====================
 [imaging]

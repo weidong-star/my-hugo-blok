@@ -32,7 +32,7 @@ title = "Weidong's Blok"
 
   # ISO 语言代码（冗余？与上面的 languageCode 重复）
   # 某些主题可能在这里再次定义，用于模板判断
-  isoCode = "en"
+  isoCode = "zh"
 
   # 是否为从右到左（RTL）书写的语言
   # 例如：阿拉伯语 (ar)、希伯来语 (he) 需要 rtl = true
@@ -45,7 +45,8 @@ title = "Weidong's Blok"
   #   "2 January 2006"  →  2 January 2006
   #   "2006-01-02"      →  2025-04-05
   #   "Jan 2, 2006"     →  Apr 5, 2025
-  dateFormat = "2 January 2006"
+  # dateFormat = "2 January 2006"
+  dateFormat = "2006年1月2日"
 
   # 站点主 Logo 图片路径（相对 public/ 或 static/ 目录）
   # 当前被注释掉了，主题会使用默认或不显示
@@ -60,6 +61,7 @@ title = "Weidong's Blok"
   # 版权信息（显示在页脚）
   # 支持 Markdown 语法，如表情符号 :thinking_face:
   # copyright = "Copy, _right?_ :thinking_face:"
+  copyright = "© 2023-2028 Weidong's Blok · 保留所有权利"
 
 # ==================== 作者信息区块（可选）===================
 # Blowfish 主题支持配置作者信息，显示在文章、关于页等位置
@@ -76,8 +78,8 @@ title = "Weidong's Blok"
 #   # 每个 {} 代表一个链接图标
 #   # 键名对应 Blowfish 支持的平台（必须精确匹配）
 #   # 例如：github = "https://github.com/username"
-#   links = [
-#     { email = "mailto:hello@your_domain.com" },           # 邮件
+   links = [
+     { email = "mailto:weidong_321@163.com" },           # 邮件
 #     { link = "https://link-to-some-website.com/" },       # 自定义链接（无图标）
 #     { amazon = "https://www.amazon.com/hz/wishlist/ls/wishlist-id" },
 #     { apple = "https://www.apple.com" },
@@ -128,4 +130,4 @@ title = "Weidong's Blok"
 #     { youtube = "https://youtube.com/username" },
 #     { ko-fi = "https://ko-fi.com/username" },
 #     { codeberg = "https://codeberg.org/username"},
-#   ]
+   ]
