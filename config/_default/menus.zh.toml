@@ -67,17 +67,18 @@
   url = "/categories/工作分享/电子证照/"
   weight = 70
 
-#[[main]]
-#  name = "事项系统"
-#  parent = "工作分享"
-#  url = "/categories/工作分享/事项系统/"
-#  weight = 80
+[[main]]
+  name = "事项系统"
+  parent = "工作分享"
+  url = "/categories/工作分享/事项系统/"
+  weight = 80
 
 [[main]]
   name = "基础平台"
   parent = "工作分享"
   url = "/categories/工作分享/基础平台/"
-  weight = 80
+  weight = 90
+
 
 [[main]]
   name = "个人分享"
