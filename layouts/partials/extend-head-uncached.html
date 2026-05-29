@@ -1,0 +1,11 @@
+﻿{{/* 仅在页面包含 mermaid 图表时加载 */}}
+{{ if in .RawContent "mermaid" }}
+<script src="{{ "js/mermaid.min.js" | relURL }}"></script>
+<script>
+  mermaid.initialize({ 
+    startOnLoad: true,
+    theme: 'default',
+    securityLevel: 'loose'
+  });
+</script>
+{{ end }}
