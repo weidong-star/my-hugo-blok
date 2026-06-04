@@ -1,6 +1,6 @@
-﻿{{/* 仅在页面包含 mermaid 图表时加载 */}}
+﻿{{/* 仅在页面包含 mermaid 图表时加载 - 使用 defer 避免阻塞渲染 */}}
 {{ if in .RawContent "mermaid" }}
-<script src="{{ "js/mermaid.min.js" | relURL }}"></script>
+<script defer src="{{ "js/mermaid.min.js" | relURL }}"></script>
 <script>
   mermaid.initialize({ 
     startOnLoad: true,
