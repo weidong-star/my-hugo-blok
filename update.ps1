@@ -1,7 +1,7 @@
 # update.ps1 - Update blog to Vercel
 # Usage: .\update.ps1 "commit message"
 
-param(
+param( 
     [string]$message = "Update blog content"
 )
 
