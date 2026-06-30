@@ -1,0 +1,22 @@
+{{/* Baidu site verification + auto push */}}
+{{ with .Params.verification.baidu }}
+<meta name="baidu-site-verification" content="{{ . }}">
+{{ end }}
+
+{{/* Baidu auto push - notifies Baidu every time a page is visited */}}
+{{ if hugo.IsProduction }}
+<script>
+(function(){
+    var bp = document.createElement('script');
+    var curProtocol = window.location.protocol.split(':')[0];
+    if (curProtocol === 'https') {
+        bp.src = 'https://zz.bdstatic.com/linksubmit/push.js';
+    }
+    else {
+        bp.src = 'http://push.zhanzhang.baidu.com/push.js';
+    }
+    var s = document.getElementsByTagName("script")[0];
+    s.parentNode.insertBefore(bp, s);
+})();
+</script>
+{{ end }}

@@ -174,7 +174,8 @@ forgejoDefaultServer = "https://v11.next.forgejo.org"  # Forgejo 默认地址
   # globalWidget = true
 
 [verification]
-  # google = ""                             # Google Search Console 验证
+  # google = ""
+  baidu = "codeva-OOgHsIVLBU"                # Google Search Console 验证
   # bing = ""
   # pinterest = ""
   # yandex = ""

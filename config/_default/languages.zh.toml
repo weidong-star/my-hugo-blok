@@ -56,7 +56,7 @@ title = "Weidong's Blog"
   # secondaryLogo = "img/secondary-logo.png"
 
   # 站点描述（用于 SEO 的 meta description）
-   description = "Weidong's Blog"
+   description = "Weidong's Blog - 记录技术、工具使用与运维踩坑经验，分享 ADB 调试、数据库操作、办公效率等实用内容"
 
   # 版权信息（显示在页脚）
   # 支持 Markdown 语法，如表情符号 :thinking_face:
