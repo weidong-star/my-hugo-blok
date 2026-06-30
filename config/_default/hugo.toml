@@ -126,3 +126,8 @@ enableEmoji = true
     name = 'fragmentrefs' # 片段引用（Blowfish 特色功能，用于短篇引用）
     type = 'fragments'    # 特殊类型：fragments（非标准文章）
     weight = 10           # 引用片段也算轻度相关
+# ==================== [minify] 压缩配置 ====================
+[minify]
+  [minify.tdewolff]
+    [minify.tdewolff.html]
+      keepQuotes = true
