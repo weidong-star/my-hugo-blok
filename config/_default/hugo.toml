@@ -47,6 +47,10 @@ buildFuture = false
 # 依赖 Hugo 的 emoji 渲染器
 enableEmoji = true
 
+# 是否启用 Git 信息（用于按“最后提交时间”排序最新更新）
+# 开启后，未在 front matter 写 lastmod 的文章，其 .Lastmod 取该文件最后一次 git 提交的时间
+enableGitInfo = true
+
 # Google Analytics 4 跟踪 ID（GA4）
 # 格式：G-XXXXXXXXXX
 # 开启后会在 <head> 中自动插入跟踪代码
