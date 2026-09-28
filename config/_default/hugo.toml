@@ -61,7 +61,7 @@ enableGitInfo = true
   # 每页显示的文章数量
   # 太大影响加载速度，太小影响用户体验
   # 100 适合博客归档页（Blowfish 支持无限滚动？需确认）
-  pagerSize = 10
+  pagerSize = 20
 
 # ==================== [imaging] 图片处理配置 ====================
 [imaging]
