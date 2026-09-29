@@ -1,5 +1,6 @@
 ---
 title: "uBlock Origin Lite 使用指南"
+slug: ublock-origin-lite-guide
 date: 2026-04-01T15:00:00+08:00
 draft: false
 description: "轻量级广告拦截器 uBlock Origin Lite 的安装与使用完全指南"

@@ -1,6 +1,7 @@
 ---
 
 title: navicat激活使用全流程
+slug: navicat-activation-guide
 date: 2023-08-04T19:30:00+08:00
 thumbnail: /images/blokImg/navicat.png
 cover:

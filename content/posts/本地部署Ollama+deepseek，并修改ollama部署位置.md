@@ -1,6 +1,7 @@
 ---
 
 title: 本地部署Ollama+deepseek，安装可视化工具，并修改ollama部署位置
+slug: ollama-deepseek-local-deployment
 date: 2025-02-10T14:51:22+08:00
 thumbnail: /images/blokImg/ollama.png
 cover:

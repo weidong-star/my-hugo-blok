@@ -1,6 +1,7 @@
 ---
 
 title: 如何激活win10
+slug: windows10-activation-guide
 date: 2025-03-18T15:30:00+08:00
 # thumbnail: /images/blokImg/win10.png
 cover:

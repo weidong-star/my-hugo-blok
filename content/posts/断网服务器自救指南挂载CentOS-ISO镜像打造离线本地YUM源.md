@@ -1,6 +1,7 @@
 ---
 
 title: 断网服务器自救指南：挂载 CentOS ISO 镜像，打造离线本地 YUM 源
+slug: centos-offline-yum-repo-guide
 date: 2024-12-19T18:00:00+08:00
 # thumbnail: /images/blokImg/centos.png
 categories: 

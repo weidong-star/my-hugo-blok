@@ -1,6 +1,7 @@
 ---
 
 title: Oracle数据库ORA-12518错误处理指南
+slug: oracle-ora-12518-troubleshooting
 date: 2024-05-19T00:00:00+08:00
 categories:
   - 工作分享/数据库

@@ -1,5 +1,6 @@
 ---
 title: Oracle数据库ORA-12541错误排查：监听日志过大导致连接失败
+slug: oracle-ora-12541-listener-log-issue
 subtitle: 一次移动端文件上传故障的完整排查过程与解决方案
 date: 2026-01-23T10:30:00+08:00
 categories:

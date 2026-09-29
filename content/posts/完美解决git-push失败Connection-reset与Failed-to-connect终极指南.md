@@ -1,6 +1,7 @@
 ---
 
 title: 完美解决 git push 失败："Connection reset" 与 "Failed to connect" 终极指南
+slug: git-push-connection-failed-solutions
 date: 2024-01-19T14:30:00+08:00
 # thumbnail: /images/blokImg/git.png
 categories:

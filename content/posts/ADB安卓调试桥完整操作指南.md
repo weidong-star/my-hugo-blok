@@ -1,5 +1,6 @@
-﻿---
+---
 title: ADB安卓调试桥完整操作指南
+slug: adb-android-debug-bridge-guide
 date: 2026-06-29T10:00:00+08:00
 categories:
   - 个人分享/技术分享

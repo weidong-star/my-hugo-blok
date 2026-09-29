@@ -1,6 +1,7 @@
 ---
 
 title: CentOS 安装 MySQL 终极指南：从 YUM 到离线包，总有一款适合你
+slug: centos-mysql-installation-guide
 date: 2025-05-19T16:00:00+08:00
 # thumbnail: /images/blokImg/mysql.png
 showComments: true

@@ -1,5 +1,6 @@
 ---
 title: 政务系统可观测平台搭建实战：SigNoz + OpenTelemetry 探针，从零到 9 个应用上线
+slug: signoz-opentelemetry-observability-guide
 date: 2026-09-28T20:30:00+08:00
 categories:
     - 个人分享/技术分享

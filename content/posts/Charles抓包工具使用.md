@@ -1,6 +1,7 @@
 ---
 
 title: Charles抓包工具使用
+slug: charles-proxy-guide
 date: 2024-03-12T17:30:00+08:00
 categories:
   - 个人分享/工具分享

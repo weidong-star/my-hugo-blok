@@ -1,6 +1,7 @@
 ---
 
 title: CentOS无网络环境Oracle数据库安装完整指南
+slug: linux-oracle-download-guide
 date: 2025-01-27T10:00:00+08:00
 categories:
   - 个人分享/技术分享

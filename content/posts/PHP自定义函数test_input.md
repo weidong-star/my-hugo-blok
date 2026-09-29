@@ -1,6 +1,7 @@
 ---
 
 title: PHP自定义函数test_input()
+slug: php-test-input-function
 date: 2018-02-18T16:30:00+08:00
 thumbnail: /images/blokImg/php.png
 cover:

@@ -1,5 +1,6 @@
 ---
 title: Excel 2024 Power Query 实战：自动获取并处理电子证照统计数据
+slug: excel-api-ecertificate-guide
 subtitle: 告别 VBA，用 Power Query 轻松搞定 API 数据抓取与清洗
 date: 2025-12-17T00:00:00+08:00
 categories:

@@ -1,6 +1,7 @@
 ---
 
 title: 【WechatRealFriends】一个检测微信单向好友工具
+slug: wechat-real-friends-tool
 date: 2025-02-21T10:00:00+08:00
 draft: false
 thumbnail: "/images/blokImg/微信-thumb.jpg"          # 列表页缩略图

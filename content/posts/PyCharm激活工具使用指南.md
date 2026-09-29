@@ -1,6 +1,7 @@
 ---
 
 title: PyCharm激活工具使用指南
+slug: pycharm-activation-guide
 date: 2024-11-04T19:00:00+08:00
 thumbnail: /images/blokImg/pycharm.png
 cover:

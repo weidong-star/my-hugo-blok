@@ -1,6 +1,7 @@
 ---
 
 title: Office下载以及激活教程
+slug: office-download-activation-guide
 date: 2024-01-15T10:30:00+08:00
 thumbnail: /images/blokImg/office.png
 cover:

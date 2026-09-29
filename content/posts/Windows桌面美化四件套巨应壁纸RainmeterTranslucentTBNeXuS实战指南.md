@@ -1,5 +1,6 @@
-﻿---
+---
 title: "Windows 桌面美化四件套：巨应壁纸 + Rainmeter + TranslucentTB + NeXuS 实战指南"
+slug: windows-desktop-customization-guide
 date: 2026-08-10T09:00:00+08:00
 categories:
   - 个人分享/工具分享

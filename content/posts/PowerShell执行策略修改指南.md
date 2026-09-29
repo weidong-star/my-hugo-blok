@@ -1,6 +1,7 @@
 ---
 
 title: PowerShell执行策略修改指南
+slug: powershell-execution-policy-guide
 date: 2024-12-19T10:00:00+08:00
 thumbnail: /images/blokImg/powershell.png
 cover:

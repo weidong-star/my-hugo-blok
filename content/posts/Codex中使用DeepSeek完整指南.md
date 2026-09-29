@@ -1,5 +1,6 @@
-﻿---
+---
 title: 两种方式在 Codex 中使用 DeepSeek（CCX + Codex++）
+slug: codex-deepseek-guide
 date: 2026-05-29T09:00:00+08:00
 categories:
   - 个人分享/工具分享
