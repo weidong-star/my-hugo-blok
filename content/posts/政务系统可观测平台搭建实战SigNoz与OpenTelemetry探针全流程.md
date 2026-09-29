@@ -20,20 +20,21 @@ excerpt: 一次完整的政务系统监控接入实战记录。从搞懂"可观�
 
 这篇文章记录的是一次真实的工作经历，从头到尾半个月的活儿。
 
-事情的起因很简单：**我们有一套政务系统，跑在十几台服务器上，但是没有任何监控。**
+事情的起因很简单：**公司要求我们安装signoz，以及探针，但是我从来没了解过，上网了解了一下，原来是进行监控的，主要监控内容是服务器以及应用程序、数据库。**
+大概应用场景就是
 
-- 服务器 CPU 飙到 100%，没人知道，直到业务打电话来说"系统卡了"
+- 服务器 CPU 飙到 100%，没人知道，直到"系统卡了"
 - 数据库连接池满了，没人知道，直到用户投诉"提交不了"
-- 某个 Java 应用内存泄漏，没人知道，直到某天凌晨它自己 OOM 挂掉
+- 某个 Java 应用内存泄漏，没人知道，直到某天它自己 OOM 挂掉
 - 用户反馈"这个页面很慢"，我们只能说"我看看"，然后登录服务器 `tail -f` 看日志，两眼一抹黑
 
-这种状态持续了很久。所以当公司说要上一套监控平台时，我是很积极的。
+由于我不是一名专业的服务器运维，所有这种状态之前也有过发生。所以当公司说要上一套监控平台时，我是很积极的。
 
 **但是过程比我想象的曲折得多。** 中间踩了一堆坑，有一次还因为误杀进程把生产环境的 ZooKeeper 搞挂了，导致一整台服务器上所有业务系统起不来——那半小时我手心全是汗。
 
 所以我把整个过程完整写下来，包括踩的坑。**如果你也要做类似的事，希望你能少走点弯路。**
 
-这篇文章会非常长，因为我想把它写成一份"照着做就能成"的手册。我会：
+这篇文章会非常长，因为我想把它写成一份"照着做就能成"的手册。我会： 
 
 1. **先讲清楚概念**——可观测性是什么、SigNoz 是什么、探针是什么，这些词你在任何文档里都能看到，但很少有人用大白话解释
 2. **再讲清楚架构**——数据从服务器到平台，中间经过哪些环节
@@ -116,7 +117,7 @@ excerpt: 一次完整的政务系统监控接入实战记录。从搞懂"可观�
 | 项目 | 值 |
 |---|---|
 | SigNoz 版本 | v0.126.1（社区版） |
-| 访问地址 | `http://10.25.248.238:8086` |
+| 访问地址 | `http://IP:8086` |
 | 底层数据库 | ClickHouse 25.5.6 |
 | 数据盘 | 2TB，挂载在 `/home/docker` |
 | 部署方式 | Docker（Docker 26.1.2） |
@@ -183,7 +184,7 @@ excerpt: 一次完整的政务系统监控接入实战记录。从搞懂"可观�
 
 **注意第四层的"数据量大"**。这是整个项目里最需要小心的地方——链路数据量和**用户请求量成正比**。如果系统每天有 100 万次请求，每个请求产生 1 条链路、每条链路 10 个片段，那就是每天 1000 万条记录。如果不做采样，平台很快就被打爆。
 
-这也是为什么我在项目一开始就说"**先弄应用吧，我怕弄上链路服务器被打爆**"——后面会讲怎么用采样率解决这个问题。
+这也是为什么我在项目一开始就考虑到"**先弄应用吧，怕弄上链路并且不限制服务器被打爆**"——后面会讲怎么用采样率解决这个问题。
 
 ### 1.5 一张图看懂整个架构
 
@@ -192,7 +193,7 @@ excerpt: 一次完整的政务系统监控接入实战记录。从搞懂"可观�
 ```
                     ┌──────────────────────────────────┐
                     │      SigNoz 平台                  │
-                    │   10.25.248.238:8086             │
+                    │        IP:8086             │
                     │                                  │
                     │  ┌────────────┐                  │
                     │  │ ClickHouse │ ← 存所有数据     │
@@ -237,7 +238,8 @@ excerpt: 一次完整的政务系统监控接入实战记录。从搞懂"可观�
 
 ## 第二章 动手之前：把环境和规划搞清楚
 
-**我见过太多人一上来就 `tar -zxvf` 然后 `./install.sh`，结果装到一半发现网络不通、端口被占、版本不对。** 所以这一章是"规划章"，看起来没干货，但能省你一天时间。
+**同步部署的时候，我们有一些同事上来就`tar -zxvf` 或者`unzip`，然后`./install.sh`，结果装到一半发现网络不通、端口被占、版本不对。** 
+所以这一章是"规划章"，看起来没干货，但能省你一天时间。
 
 ### 2.1 网络分区：A 区还是 B 区（这里最容易翻车）
 
@@ -245,48 +247,58 @@ excerpt: 一次完整的政务系统监控接入实战记录。从搞懂"可观�
 
 | 区域 | 内网网段 | 平台地址 | 说明 |
 |---|---|---|---|
-| **A 区** | `10.25.248.x`、`192.168.10.x` | `10.25.248.238` | 平台自己所在区域 |
-| **B 区** | `192.168.140.x` | `192.168.140.60` | 通过一台转发机接入 |
+| **A 区** | `政务网.x`、`政务网.x` | `政务网.x` | 平台自己所在区域 |
+| **B 区** | `192.168.140.x` | `192.168.140.*` | 通过一台转发机接入 |
 
 **平台的 4317 端口在两台机器上都开放了**：
-- A 区机器 → 连 `10.25.248.238:4317`
-- B 区机器 → 连 `192.168.140.60:4317`
+- A 区机器 → 连 `政务网:4317`
+- B 区机器 → 连 `内网:4317`
 
 **怎么判断一台服务器该用哪个地址？**
 
 不要看它的"政务网 IP"，要看它**实际能连通哪个**。判断方法（后面会详细讲）：
 
 ```powershell
-Test-NetConnection -ComputerName 10.25.248.238 -Port 4318
-Test-NetConnection -ComputerName 192.168.140.60 -Port 4318
+Test-NetConnection -ComputerName 政务网 -Port 4318
+Test-NetConnection -ComputerName 内网 -Port 4318
 ```
 
 **⚠️ 这是我们踩的最大的坑之一。**
 
-我们有一台服务器 `10.25.243.112`，从 IP 看是 `10.25.243.x`（像是 A 区），但它的实际出口是 `192.168.140.2`（B 区）。**我一开始按 IP 判断，配了 `10.25.248.238:4318`，结果链路数据一条都上不去。**
+我们有一台服务器 `112`，从 IP 看是 `*.*.*.112`（像是 A 区），但它的实际出口是 `192.168.140.2`（B 区）。**我一开始按 IP 判断，配了 `*.*.*.238:4318`，结果链路数据一条都上不去。**
 
-后面测了才发现，**`10.25.243.x` 这一整段全都是走 B 区的**。所以：
+后面测了才发现，**`*.*.*.112` 这一整段全都是走 B 区的**。所以：
 
 > **判断标准：看测试命令输出的 `SourceAddress` 是什么。**
 >
 > - `SourceAddress` 是 `192.168.140.x` → 走 B 区 → 用 `192.168.140.60`
-> - `SourceAddress` 是 `10.25.248.x` → 走 A 区 → 用 `10.25.248.238`
+> - `SourceAddress` 是 `*.*.*.238` → 走 A 区 → 用 `*.*.*.238`
 
 **这条经验值一千块。**
 
-### 2.2 采集器版本：为什么我们用 0.88.0 而不是最新的 0.150.1
+### 2.2 采集器版本：为什么我用 0.88.0 而不是最新的 0.150.1
 
-厂商文档里写的采集器版本是 **v0.150.1**（一个比较新的版本），但我最后用的是 **v0.88.0**（一个老版本）。
+公司文档里写的采集器版本是 **v0.150.1**（一个比较新的版本），但我最后用的是 **v0.88.0**（一个老版本）。
 
-**为什么降级？因为厂商文档自己打自己的脸：**
+**为什么降级？因为公司文档不兼容我的主机版本：**
 
-厂商手册里写着：
+公司手册里写着：
+
 
 > Windows Server x64 | **Windows Server 2016 / 2019 / 2022（64 位）** | otelcol-contrib_0.150.1_windows_amd64.tar.gz
 
-而我们这 **10 台 Windows 服务器全是 Windows Server 2012 R2**——**按厂商文档，根本不在支持范围内。**
+而我们项目上这 **\* 台 Windows 服务器全是 Windows Server 2012 R2**——**按公司文档，根本不在支持范围内。**
 
-我在 2012 R2 上试装 0.150.1，跑不起来（缺依赖/不兼容）。换成 0.88.0 就能跑。
+我在 2012 R2 上试装 0.150.1，跑不起来（缺依赖 / 不兼容）。换成 0.88.0 就能跑。
+
+使用 0.88.0 版本时，不支持 `tcpcheck` 采集器，配置会报错：
+
+
+$ otelcol-contrib.exe validate --config=后台生成.yaml
+Error: failed to get config: cannot unmarshal the configuration: 1 error(s) decoding:
+ error decoding 'receivers': unknown type: "tcpcheck" for id: "tcpcheck/oracle"
+exit code = 1
+
 
 **降级的代价（必须知道）：**
 
@@ -301,13 +313,6 @@ Test-NetConnection -ComputerName 192.168.140.60 -Port 4318
 
 **结论：只损失了 `tcpcheck` 一个能力，其他都有。** 这是可以接受的。
 
-**这件事一定要跟厂商报备。** 我们专门写了一份《与厂商文档的偏离说明》文档，把这个问题列在第一条，要求厂商答复三个选项：
-
-1. 维持 0.88.0，接受缺少 `tcpcheck`
-2. 厂商提供适配 2012 R2 的 0.150.1 构建版
-3. 业务方升级服务器操作系统
-
-**为什么要专门写文档？** 因为**巡检的时候会被问**。如果到时候你说"我用的 0.88.0"，巡检的人一查文档说"文档写的是 0.150.1，你为什么不用"，你就被动了。**主动说明 + 书面记录，主动权就在你手里。**
 
 ### 2.3 端口规划：别让小端口毁了大事情
 
@@ -330,8 +335,9 @@ Test-NetConnection -ComputerName 192.168.140.60 -Port 4318
   第 3 个应用 → 9997
   第 4 个应用 → 9996
 ```
+如果是多台服务器，就每台服务器上都用9999就行了
 
-**⚠️ 但一定要先检查端口是否被占用！** 我们有台机器 `10.25.243.127`，上面跑了一个 Jetty，**Jetty 自己就占用了 9999**，所以那台机器的 QYSL 应用只能用 9998。
+**⚠️ 但一定要先检查端口是否被占用！** 我们有台机器 `*.*.*.127`，上面跑了一个 Jetty，**Jetty 自己就占用了 9999**，所以那台机器的 QYSL 应用只能用 9998。
 
 检查方法后面会讲。
 
@@ -339,7 +345,7 @@ Test-NetConnection -ComputerName 192.168.140.60 -Port 4318
 
 ## 第三章 第一步：给 Linux 服务器装探针
 
-我们有三台 Linux 服务器（`10.25.248.241`、`10.25.248.237`、`10.25.241.131`），Windows 有十台。
+我们有三台 Linux 服务器（`*.*.*.241`、`*.*.*.237`、`*.*.*.131`），Windows 有十台。
 
 这一章先讲 Linux，因为 **Linux 是标准做法，Windows 是特殊情况**。
 
@@ -354,7 +360,7 @@ Test-NetConnection -ComputerName 192.168.140.60 -Port 4318
 **传文件的命令：**
 
 ```bash
-scp -P 37210 otelcol-contrib_0.88.0_linux_amd64.tar.gz root@10.25.248.241:/tmp/
+scp -P 37210 otelcol-contrib_0.88.0_linux_amd64.tar.gz root@*.*.*.241:/tmp/
 ```
 
 **这条命令拆开看：**
@@ -364,7 +370,7 @@ scp -P 37210 otelcol-contrib_0.88.0_linux_amd64.tar.gz root@10.25.248.241:/tmp/
 | `scp` | secure copy，基于 SSH 的加密文件传输 |
 | `-P 37210` | **大写的 P**，指定 SSH 端口。注意：`scp` 用大写 `-P`，而 `ssh` 用小写 `-p`，这两个很容易搞混 |
 | `otelcol-...tar.gz` | 本地要传的文件 |
-| `root@10.25.248.241:/tmp/` | 目标：以 root 身份传到那台机器的 `/tmp/` 目录 |
+| `root@*.*.*.241:/tmp/` | 目标：以 root 身份传到那台机器的 `/tmp/` 目录 |
 
 **为什么先传到 `/tmp`？** 因为 `/tmp` 是临时目录，权限宽松，先放这儿再解压到正式位置，是个好习惯（万一版本不对，直接删掉 `/tmp` 里的就行，不会污染系统）。
 
@@ -450,7 +456,7 @@ chmod +x /opt/otelcol/otelcol-contrib
 
 **这条命令的价值巨大**：它会列出这个版本**实际支持**的所有采集器（receivers）、处理器（processors）、导出器（exporters）。
 
-**为什么重要？** 因为我们就是靠它发现 **0.88.0 里没有 `tcpcheck`** 这个采集器的。厂商的配置生成器会生成 `tcpcheck` 配置，但那个版本根本没有，**启动时直接报错**：
+**为什么重要？** 因为我们就是靠它发现 **0.88.0 里没有 `tcpcheck`** 这个采集器的。公司的配置生成器会生成 `tcpcheck` 配置，但那个版本根本没有，**启动时直接报错**：
 
 ```
 Error: failed to get config: cannot unmarshal the configuration: 1 error(s) decoding:
@@ -578,7 +584,7 @@ processors:
   resource/host_inject:
     attributes:
       - key: host.ip
-        value: "10.25.248.241"
+        value: "*.*.*.241"
         action: upsert
       - key: host.name
         value: "nc-ucb-1-05-241"
@@ -596,7 +602,7 @@ processors:
         value: "nc-ucb-1-05"
         action: upsert
       - key: service.instance.id
-        value: "10.25.248.241"
+        value: "*.*.*.241"
         action: upsert
       - key: service.type
         value: "host"
@@ -611,7 +617,7 @@ processors:
         value: "Redis缓存"
         action: upsert
       - key: service.instance.id
-        value: "10.25.248.241:6379"
+        value: "*.*.*.*:6379"
         action: upsert
       - key: service.type
         value: "middleware"
@@ -626,7 +632,7 @@ processors:
 
 exporters:
   otlp:
-    endpoint: "10.25.248.238:4317"
+    endpoint: "*.*.*.238:4317"
     tls:
       insecure: true
 
@@ -728,7 +734,7 @@ resourcedetection:
 resource/host_inject:
   attributes:
     - key: host.ip
-      value: "10.25.248.241"
+      value: "*.*.*.241"
       action: upsert
     - key: host.name
       value: "nc-ucb-1-05-241"
@@ -770,7 +776,7 @@ resource/host:
       value: "nc-ucb-1-05"        # 服务名
       action: upsert
     - key: service.instance.id
-      value: "10.25.248.241"      # 实例 ID = IP
+      value: "*.*.*.241"      # 实例 ID = IP
       action: upsert
     - key: service.type
       value: "host"                # 类型：主机
@@ -806,7 +812,7 @@ attributes/redis:
       value: "Redis缓存"
       action: upsert
     - key: service.instance.id
-      value: "10.25.248.241:6379"
+      value: "*.*.*.241:6379"
       action: upsert
     - key: service.type
       value: "middleware"
@@ -842,13 +848,13 @@ batch:
 ```yaml
 exporters:
   otlp:
-    endpoint: "10.25.248.238:4317"
+    endpoint: "*.*.*.*:4317"
     tls:
       insecure: true
 ```
 
 - `otlp` = OpenTelemetry Protocol，标准上报协议
-- `endpoint` = 平台地址（A 区机器填 `10.25.248.238:4317`，B 区填 `192.168.140.60:4317`）
+- `endpoint` = 平台地址（A 区机器填 `*.*.*.238:4317`，B 区填 `192.168.140.60:4317`）
 - `tls.insecure: true` = **不加密**
 
 **⚠️ `insecure: true` 必须写！** 因为我们的平台在内网，没有配 HTTPS 证书。如果不写这一行，探针会尝试用 TLS 连接，然后报错：
@@ -1132,14 +1138,14 @@ curl -s http://127.0.0.1:18888/metrics | grep 'otelcol_exporter_send_failed'
 Windows 上装探针，比 Linux 麻烦不少，主要因为：
 
 1. **版本受限**：2012 R2 太老，只能用 0.88.0
-2. **没有 systemd**：不能像 Linux 那样做成系统服务（厂商文档里"Windows 服务注册方式待补充"，等于没给方案）
+2. **没有 systemd**：不能像 Linux 那样做成系统服务（公司文档里"Windows 服务注册方式待补充"，等于没给方案）
 3. **命令行不统一**：`cmd` 和 `PowerShell` 是两套东西，命令完全不同
 
 ### 4.1 Windows 版探针的安装
 
 **安装包**：`otelcol-contrib_0.88.0_windows_amd64.tar.gz`
 
-**安装目录**：`C:\otelcol\`（这是厂商文档规定的，我们照做）
+**安装目录**：`C:\otelcol\`（这是公司文档规定的，我们照做）
 
 **解压**：Windows 上 `tar` 命令从 Windows 10/Server 2019 才自带。2012 R2 没有。所以用 7-Zip 或者 PowerShell 解压：
 
@@ -1501,25 +1507,6 @@ Get-Content "D:\server\apache-tomcat-9.0.115-BPM\logs\catalina.2026-09-28.log" -
 | QYSL | `INSPUR-DZZW-QYSL` |
 | XZSP | `INSPUR-DZZW-XZSP` |
 
-**但必须记住**：
-
-> **这是"兜底值"，不是"官方值"。要在台账里标记为"待补登记"，事后找应用负责人确认。**
-
-**为什么不能就这么算了？**
-
-因为公司有一份《数字政府应用清单》，里面是**官方的 57 条应用编码**。巡检时会对照这份清单检查。**如果平台上出现了清单里没有的编码，就是个问题。**
-
-**我们踩过这个坑**：`INSPUR-DZZW-BSP`、`INSPUR-DZZW-FORM`、`INSPUR-DZZW-DISK` 这些**都不在清单里**。
-
-**正确的做法是**：
-
-1. **先用应用自己声明的值**（保证监控能跑起来，不阻塞工作）
-2. **同时在台账里记下"待补登记"**
-3. **拿着这些编码去找应用负责人 / 架构部门补登记**
-
-**别自己随便改名**。因为应用在连注册中心（Nacos/ZooKeeper）、做 SSO 单点登录时用的都是它自己声明的名字，你改监控平台上的名字，就会和应用实际注册的名字**对不上**，后面对账更麻烦。
-
----
 
 ## 第六章 用脚本生成配置（别手工复制粘贴）
 
@@ -1545,14 +1532,14 @@ Get-Content "D:\server\apache-tomcat-9.0.115-BPM\logs\catalina.2026-09-28.log" -
 **最基本的用法（只采主机）：**
 
 ```bash
-python make_config.py --name nc-ucb-1-05 --gov-ip 10.25.248.241 --endpoint 192.168.140.60:4317 --objects host
+python make_config.py --name nc-ucb-1-05 --gov-ip *.*.*.241 --endpoint 192.168.140.60:4317 --objects host
 ```
 
 **带数据库和中间件的：**
 
 ```bash
-python make_config.py --name WIN-BLK3HH5RG2Q --gov-ip 10.25.241.100 \
-    --endpoint 10.25.248.238:4317 --objects redis,memcached \
+python make_config.py --name WIN-BLK3HH5RG2Q --gov-ip *.*.*.100 \
+    --endpoint *.*.*.238:4317 --objects redis,memcached \
     --redis-endpoint 127.0.0.1:6379 --memcached-endpoint 127.0.0.1:11211 \
     --note "4个Java应用；Redis无密码"
 ```
@@ -1560,7 +1547,7 @@ python make_config.py --name WIN-BLK3HH5RG2Q --gov-ip 10.25.241.100 \
 **带应用 JMX 的（这是后面加的）：**
 
 ```bash
-python make_config.py --name nc-ucb-1-05 --gov-ip 10.25.248.241 \
+python make_config.py --name nc-ucb-1-05 --gov-ip *.*.*.241 \
     --endpoint 192.168.140.60:4317 --objects jmx \
     --jmx-endpoint 127.0.0.1:9999 \
     --jmx-name ONE-POLICY-MANAGE-CB \
@@ -1574,7 +1561,7 @@ python make_config.py --name nc-ucb-1-05 --gov-ip 10.25.248.241 \
 | 参数 | 含义 | 例子 |
 |---|---|---|
 | `--name` | 主机名（用于生成文件名和 host.name） | `nc-ucb-1-05` |
-| `--gov-ip` | 政务网 IP | `10.25.248.241` |
+| `--gov-ip` | 政务网 IP | `*.*.*.241` |
 | `--endpoint` | 上报地址（**A 区/B 区要选对！**） | `192.168.140.60:4317` |
 | `--objects` | 要采集哪些对象（逗号分隔） | `host,redis,mysql,jmx` |
 | `--redis-endpoint` | Redis 地址 | `127.0.0.1:6379` |
@@ -1588,7 +1575,7 @@ python make_config.py --name nc-ucb-1-05 --gov-ip 10.25.248.241 \
 **输出：**
 
 ```
-OK -> D:\...\configs\config-10.25.248.241-nc-ucb-1-05.yaml
+OK -> D:\...\configs\config-*.*.*.241-nc-ucb-1-05.yaml
 host.name = nc-ucb-1-05-241
 objects   = jmx, host
 ```
@@ -1599,7 +1586,7 @@ objects   = jmx, host
 # ==============================================================================
 # otelcol-contrib 探针配置（适配 0.88.0）
 # 主机名    : WIN-44QOJ4RLAU0
-# 政务网 IP  : 10.25.243.113
+# 政务网 IP  : *.*.*.113
 # 数据上报   : 192.168.140.60:4317
 # 采集对象   : 主机、BPM应用JMX、Schedule应用JMX
 # 备注       : 3个Tomcat(jdk1.8.0_131)+ZooKeeper3.8.4；ZK mntr被白名单挡、AdminServer /metrics 404
@@ -1652,10 +1639,10 @@ with open(path, "w", encoding="utf-8", newline="\n") as f:
 
 ```bash
 # 上传文件
-python ssh_run.py put 10.25.248.241 "..\configs\config.yaml" /tmp/probe-config.yaml
+python ssh_run.py put *.*.*.241 "..\configs\config.yaml" /tmp/probe-config.yaml
 
 # 执行命令
-python ssh_run.py exec 10.25.248.241 'bash /tmp/upd.sh'
+python ssh_run.py exec *.*.*.241 'bash /tmp/upd.sh'
 ```
 
 **输出：**
@@ -1799,7 +1786,7 @@ receivers:
 
 **我们的环境情况：**
 
-- `10.25.241.100` 上有一台 Redis 5.0.10，**无密码**，`127.0.0.1:6379`
+- `*.*.*.100` 上有一台 Redis 5.0.10，**无密码**，`127.0.0.1:6379`
 - 其他几台也有 Redis，都是本地连接
 
 ### 7.4 MySQL 监控
@@ -1958,7 +1945,7 @@ curl -s http://127.0.0.1:18888/metrics | grep '^otelcol_receiver_accepted'
 **这里有个注意点**：SigNoz 的看板导入功能在不同版本位置不一样。如果没有"导入 JSON"按钮，就得手工建面板，或者调用 API：
 
 ```bash
-curl -X POST http://10.25.248.238:8086/api/v1/dashboards \
+curl -X POST http://*.*.*.238:8086/api/v1/dashboards \
   -H "Content-Type: application/json" \
   -d @dashboard.json
 ```
@@ -2082,7 +2069,7 @@ Java 应用（内部有 JMX 数据）
      SigNoz 平台
 ```
 
-**这个 agent 是一个 jar 文件**，厂商放在 `app.zip` 里，文件名：
+**这个 agent 是一个 jar 文件**，公司放在 `app.zip` 里，文件名：
 
 ```
 jmx_prometheus_javaagent-0.15.0.jar
@@ -2090,13 +2077,13 @@ jmx_prometheus_javaagent-0.15.0.jar
 
 **大小 418240 字节**（很重要，传完要核对）。
 
-### 8.4 ⚠️ 厂商给的规则文件，绝对不能直接用
+### 8.4 ⚠️ 公司给的规则文件，绝对不能直接用
 
 **这是整个项目里我最有"技术判断"的一次决定，值得详细讲。**
 
 **agent 需要一个"规则文件"（config.yaml），告诉它"要暴露哪些 JMX 数据"。**
 
-厂商给的规则文件**只有 88 字节**，内容核心就一行：
+公司给的规则文件**只有 88 字节**，内容核心就一行：
 
 ```yaml
 rules:
@@ -2167,12 +2154,12 @@ rules:
 
 | 方案 | 指标名数量 | 时间序列数量 |
 |---|---|---|
-| 厂商通配规则 `pattern: ".*"` | 估算 1000+ | **估算 2000+** |
+| 公司通配规则 `pattern: ".*"` | 估算 1000+ | **估算 2000+** |
 | **我们的精简规则** | **61** | **89 行（105 条序列）** |
 
 **压缩比约 1/20 到 1/50。**
 
-**在 `10.25.248.241` 上实测 `one-manage-1.0.0.jar` 的完整指标清单（89 行 `jvm_` 指标）：**
+**在 `*.*.*.241` 上实测 `one-manage-1.0.0.jar` 的完整指标清单（89 行 `jvm_` 指标）：**
 
 ```
 jvm_buffer_pool_capacity_bytes
@@ -2237,7 +2224,7 @@ process_virtual_memory_bytes
 浪潮可观测部署/应用接入/jmx-prometheus-rules-精简版.yaml
 ```
 
-以后每台机器都用这一份，**不要用厂商那份 88 字节的**。
+以后每台机器都用这一份，**不要用公司那份 88 字节的**。
 
 ### 8.6 给 Spring Boot 应用（jar 启动）加 agent
 
@@ -2584,7 +2571,7 @@ set "JAVA_OPTS=%JAVA_OPTS% -javaagent:..."
 
 **注意这里同时写了 `deployment.environment` 和 `environment` 两个属性。**
 
-**为什么？** 因为厂商的配置生成器就是这么写的（两个都写，值相同）。我们照着做，**保证和厂商口径一致**，避免巡检时被挑刺。
+**为什么？** 因为公司的配置生成器就是这么写的（两个都写，值相同）。我们照着做，**保证和公司口径一致**，避免巡检时被挑刺。
 
 **代价**：多一个属性，多一点点存储空间。**这点代价换来合规，值。**
 
@@ -2700,7 +2687,7 @@ processors:
         value: "INSPUR-DZZW-BSP"
         action: upsert
       - key: service.instance.id
-        value: "10.25.243.112:9999"
+        value: "*.*.*.112:9999"
         action: upsert
       - key: service.type
         value: "application"
@@ -3070,7 +3057,7 @@ Test-NetConnection -ComputerName 192.168.140.60 -Port 4318
 
 **② `-Dotel.logs.exporter=none` 为什么关掉日志**
 
-**厂商的配置生成器默认是 `-Dotel.logs.exporter=otlp`，也就是"把应用日志也发到平台"。**
+**公司的配置生成器默认是 `-Dotel.logs.exporter=otlp`，也就是"把应用日志也发到平台"。**
 
 **我把它改成了 `none`。为什么？**
 
@@ -3501,7 +3488,7 @@ ps -ef | grep 'one-manage'
 
 | 信息 | 例子 |
 |---|---|
-| 服务器 IP | `10.25.243.112` |
+| 服务器 IP | `*.*.*.112` |
 | 服务编码 `service.name` | `INSPUR-DZZW-BSP` |
 | 应用编码 `app.code` | `INSPUR-DZZW-BSP` |
 | JMX 端口 | `9999` |
@@ -3554,14 +3541,14 @@ curl -s http://127.0.0.1:18888/metrics | grep '^otelcol_exporter_send_failed'   
 
 | 服务器 IP | 主机名 | 应用数 | 应用编码 | 状态 |
 |---|---|---|---|---|
-| `10.25.243.112` | WIN-64FKLGNHKI9 | 2 | `INSPUR-DZZW-BSP`、`INSPUR-DZZW-FORM` | ✅ |
-| `10.25.243.113` | WIN-44QOJ4RLAU0 | 4 | `INSPUR-DZZW-BPM`、`INSPUR-DZZW-TASK`、`INSPUR-DZZW-DISSYSTEM`、`INSPUR-DZZW-SXGL` | ✅ |
-| `10.25.243.114` | WIN-GB4AGGI5P1L | 1 | `INSPUR-DZZW-DISK` | ✅ |
-| `10.25.243.127` | WIN-SGH1TA25OHG | 1 | `INSPUR-DZZW-QYSL` | ✅ |
-| `10.25.243.115` | WIN-JKJLPPSSRSE | 1 | `INSPUR-DZZW-XZSP` | ✅ |
+| `*.*.*.112` | WIN-64FKLGNHKI9 | 2 | `INSPUR-DZZW-BSP`、`INSPUR-DZZW-FORM` | ✅ |
+| `*.*.*.113` | WIN-44QOJ4RLAU0 | 4 | `INSPUR-DZZW-BPM`、`INSPUR-DZZW-TASK`、`INSPUR-DZZW-DISSYSTEM`、`INSPUR-DZZW-SXGL` | ✅ |
+| `*.*.*.114` | WIN-GB4AGGI5P1L | 1 | `INSPUR-DZZW-DISK` | ✅ |
+| `*.*.*.127` | WIN-SGH1TA25OHG | 1 | `INSPUR-DZZW-QYSL` | ✅ |
+| `*.*.*.115` | WIN-JKJLPPSSRSE | 1 | `INSPUR-DZZW-XZSP` | ✅ |
 | **合计** | | **9 个应用** | | |
 
-**加上更早完成的 Linux 机器 `10.25.248.241`（`ONE-POLICY-MANAGE-CB`），一共 10 个应用。**
+**加上更早完成的 Linux 机器 `*.*.*.241`（`ONE-POLICY-MANAGE-CB`），一共 10 个应用。**
 
 ### 11.2 应用名对照表（这个表一定要留着）
 
@@ -3828,7 +3815,7 @@ Set-Location "D:\server\zookeeper\apache-zookeeper-3.8.4-bin\bin"
 排查发现：
 
 ```powershell
-Test-NetConnection -ComputerName 10.25.248.238 -Port 4318
+Test-NetConnection -ComputerName *.*.*.238 -Port 4318
 # 结果：TcpTestSucceeded : False     ← 不通！
 ```
 
@@ -3842,14 +3829,14 @@ Test-NetConnection -ComputerName 192.168.140.60 -Port 4318
 
 **⭐ 关键发现：`SourceAddress` 是 `192.168.140.2`。**
 
-**虽然这台机器的"政务网 IP"是 `10.25.243.112`，但它实际走的是 B 区网络。**
+**虽然这台机器的"政务网 IP"是 `*.*.*.112`，但它实际走的是 B 区网络。**
 
 **修正：把 4 个 `setenv.bat` 里的地址全改成 `192.168.140.60:4318`。**
 
 ```powershell
 foreach ($dir in @("BSP", "Form")) {
     $file = "D:\Server\apache-tomcat-9.0.115 - $dir\bin\setenv.bat"
-    (Get-Content $file) -replace 'http://10.25.248.238:4318', 'http://192.168.140.60:4318' | Set-Content $file
+    (Get-Content $file) -replace 'http://*.*.*.238:4318', 'http://192.168.140.60:4318' | Set-Content $file
 }
 ```
 
@@ -4076,7 +4063,7 @@ app.callback=http://localhost:8282/bsp/web/callback    ← 回调地址也是 bs
 
 **现象**：链路数据一条都上不去，应用日志里**没有任何报错**。
 
-**原因**：`10.25.243.x` 这个网段的机器，**实际出口是 `192.168.140.x`（B 区）**，不是它 IP 看起来的 A 区。
+**原因**：`*.*.*.x` 这个网段的机器，**实际出口是 `192.168.140.x`（B 区）**，不是它 IP 看起来的 A 区。
 
 **教训**：
 
@@ -4091,7 +4078,7 @@ Test-NetConnection -ComputerName 192.168.140.60 -Port 4318
 #   TcpTestSucceeded → 能不能连上
 ```
 
-### 坑 2：厂商通配规则会导致数据量灾难
+### 坑 2：公司通配规则会导致数据量灾难
 
 **现象**：还没发生（我提前拦住了）。
 
@@ -4099,7 +4086,7 @@ Test-NetConnection -ComputerName 192.168.140.60 -Port 4318
 
 **教训**：
 
-> **厂商给的配置不一定适合你的环境。特别是"通配符"类配置，一定要估算数据量。**
+> **公司给的配置不一定适合你的环境。特别是"通配符"类配置，一定要估算数据量。**
 
 ### 坑 3：`tcpcheck` 在 0.88.0 里不存在
 
@@ -4110,7 +4097,7 @@ Error: failed to get config: cannot unmarshal the configuration:
 * error decoding 'receivers': unknown type: "tcpcheck" for id: "tcpcheck/oracle"
 ```
 
-**原因**：厂商配置生成器按 0.150.1 生成，但 0.88.0 没有这个采集器。
+**原因**：公司配置生成器按 0.150.1 生成，但 0.88.0 没有这个采集器。
 
 **教训**：
 
@@ -4125,13 +4112,13 @@ Error: failed to get config: cannot unmarshal the configuration:
 
 **现象**：安装包解压后跑不起来。
 
-**原因**：厂商文档写"支持 Windows Server 2016/2019/2022"，**2012 R2 不在支持范围**。
+**原因**：公司文档写"支持 Windows Server 2016/2019/2022"，**2012 R2 不在支持范围**。
 
 **教训**：
 
-> **装之前先对一下"厂商文档支持的环境"和"你的实际环境"。**
+> **装之前先对一下"公司文档支持的环境"和"你的实际环境"。**
 >
-> **对不上就提前找厂商要说法，别装到一半才发现。**
+> **对不上就提前找公司要，别装到一半才发现。**
 
 ### 坑 5：带点的标签名不能写在 `static_configs.labels`
 
@@ -4613,11 +4600,11 @@ resource/host_inject:
 
 ## 第十四章 合规与巡检：怎么保护自己
 
-### 14.1 我们和厂商文档的偏离（诚实清单）
+### 14.1 我们和公司文档的偏离（诚实清单）
 
-这次实施，**大体上按厂商文档做了，但有 4 处有意偏离**。我把它们列出来，**因为巡检时一定会被问**。
+这次实施，**大体上按公司文档做了，但有 4 处有意偏离**。我把它们列出来，**因为巡检时一定会被问**。
 
-| # | 项目 | 厂商文档要求 | 我们的做法 | 为什么 |
+| # | 项目 | 公司文档要求 | 我们的做法 | 为什么 |
 |---|---|---|---|---|
 | 1 | **采集器版本** | v0.150.1 | **v0.88.0** | **2012 R2 跑不了 0.150.1** |
 | 2 | **配置生成方式** | 用离线工具生成 | 脚本生成 + 手工调整 | 工具产出含 `tcpcheck`，0.88.0 没有 |
@@ -4643,11 +4630,11 @@ resource/host_inject:
 
 **但如果你能立刻拿出一份文档说**："这里我们偏离了，原因是 X，我们做了 Y 验证，建议 Z 处理"——**你的角色就从"被检查者"变成了"问题发现者"**。
 
-**② 厂商需要知道这些约束**
+**② 公司需要知道这些约束**
 
-厂商写文档时，可能**根本不知道**客户的环境是 2012 R2、用的是浪潮的老框架。
+公司写文档时，可能**根本不知道**客户的环境是 2012 R2、用的是浪潮的老框架。
 
-**你不反馈，厂商永远不知道**，下个版本还是这样。
+**你不反馈，公司永远不知道**，下个版本还是这样。
 
 **③ 半年后你自己也需要看**
 
@@ -4658,13 +4645,13 @@ resource/host_inject:
 **我们写的那份，结构是这样的：**
 
 ```markdown
-# 与厂商文档的偏离说明（合规核对）
+# 与公司文档的偏离说明（合规核对）
 
 ## 一、核对总表
 （一张表：项目 / 文档要求 / 实际做法 / 判定 / 依据）
 
-## 二、必须让厂商答复的一条：采集器版本
-（详细说明问题、代价量化、请示厂商的三个选项）
+## 二、必须让公司答复的一条：采集器版本
+（详细说明问题、代价量化、请示公司的三个选项）
 
 ## 三、建议在巡检前完成的三件事
 
@@ -4685,33 +4672,33 @@ resource/host_inject:
 | **附证据** | 每处偏离都附上"实测报错原文"或"实测数据" |
 | **量化影响** | 不说"数据量会大"，说"估算 2000+ 条序列，13 台机器每天 1.5 亿个点" |
 | **给出选项** | 不只说问题，要给"怎么办"的选项（A/B/C） |
-| **不推卸责任** | 用"因环境限制做了调整"，不用"厂商文档有问题" |
+| **不推卸责任** | 用"因环境限制做了调整"，不用"公司文档有问题" |
 
 ### 14.4 巡检前应该准备的三样东西
 
 | # | 准备什么 | 内容 |
 |---|---|---|
-| 1 | **《偏离说明》** | 上面那份文档，**提前发给厂商确认** |
+| 1 | **《偏离说明》** | 上面那份文档，**提前发给公司确认** |
 | 2 | **《部署台账》** | 每台机器的：IP、应用、端口、编码、接入日期、备注 |
 | 3 | **《应用名对照表》** | 服务编码 ↔ 业务名称的映射（因为 `TASK` 这种名字别人看不懂） |
 
 **有了这三样，巡检基本不会被动。**
 
-### 14.5 待补登记的服务名单
+### 14.5 不存在的服务名单
 
-**这些服务编码，不在公司《数字政府应用清单》的 57 条里**，需要走补登记流程：
+**这些服务编码，不在公司《数字政府应用清单》的 57 条里**，：
 
 | 服务器 | 应用 | app.code | service.name |
 |---|---|---|---|
-| 10.25.243.112 | BSP | `INSPUR-DZZW-BSP` | `INSPUR-DZZW-BSP` |
-| 10.25.243.112 | Form | `INSPUR-DZZW-FORM` | `INSPUR-DZZW-FORM` |
-| 10.25.243.113 | BPM | `INSPUR-DZZW-BPM` | `INSPUR-DZZW-BPM` |
-| 10.25.243.113 | Schedule | `INSPUR-DZZW-TASK` | `INSPUR-DZZW-TASK` |
-| 10.25.243.113 | DDGL | `INSPUR-DZZW-DISSYSTEM` | `INSPUR-DZZW-DISSYSTEM` |
-| 10.25.243.113 | SXGL | `INSPUR-DZZW-SXGL` | `INSPUR-DZZW-SXGL` |
-| 10.25.243.114 | WebDisk | `INSPUR-DZZW-DISK` | `INSPUR-DZZW-DISK` |
-| 10.25.243.127 | QYSL | `INSPUR-DZZW-QYSL` | `INSPUR-DZZW-QYSL` |
-| 10.25.243.115 | XZSP | `INSPUR-DZZW-XZSP` | `INSPUR-DZZW-XZSP` |
+| *.*.*.112 | BSP | `INSPUR-DZZW-BSP` | `INSPUR-DZZW-BSP` |
+| *.*.*.112 | Form | `INSPUR-DZZW-FORM` | `INSPUR-DZZW-FORM` |
+| *.*.*.113 | BPM | `INSPUR-DZZW-BPM` | `INSPUR-DZZW-BPM` |
+| *.*.*.113 | Schedule | `INSPUR-DZZW-TASK` | `INSPUR-DZZW-TASK` |
+| *.*.*.113 | DDGL | `INSPUR-DZZW-DISSYSTEM` | `INSPUR-DZZW-DISSYSTEM` |
+| *.*.*.113 | SXGL | `INSPUR-DZZW-SXGL` | `INSPUR-DZZW-SXGL` |
+| *.*.*.114 | WebDisk | `INSPUR-DZZW-DISK` | `INSPUR-DZZW-DISK` |
+| *.*.*.127 | QYSL | `INSPUR-DZZW-QYSL` | `INSPUR-DZZW-QYSL` |
+| *.*.*.115 | XZSP | `INSPUR-DZZW-XZSP` | `INSPUR-DZZW-XZSP` |
 
 **⭐ 补登记的注意事项：**
 
@@ -4862,9 +4849,9 @@ resource/host_inject:
 
 | 用途 | A 区 | B 区 |
 |---|---|---|
-| 指标上报（探针） | `10.25.248.238:4317` | `192.168.140.60:4317` |
-| 链路上报（应用） | `10.25.248.238:4318` | `192.168.140.60:4318` |
-| SigNoz 界面 | `http://10.25.248.238:8086` | 同左 |
+| 指标上报（探针） | `*.*.*.238:4317` | `192.168.140.60:4317` |
+| 链路上报（应用） | `*.*.*.238:4318` | `192.168.140.60:4318` |
+| SigNoz 界面 | `http://*.*.*.238:8086` | 同左 |
 
 **⚠️ 怎么判断用哪个？跑这个命令：**
 
@@ -4918,11 +4905,11 @@ $content -split "`n" | Where-Object { $_ -match "otelcol_exporter_send_failed" }
 
 ### 一、文档和现实永远有差距
 
-厂商文档写"支持 Windows 2016/2019/2022"，但客户环境是 2012 R2。
+公司文档写"支持 Windows 2016/2019/2022"，但客户环境是 2012 R2。
 文档写"JMX 规则用通配"，但通配会把平台打爆。
 文档写"配置用工具生成"，但工具产出的配置在目标版本上跑不起来。
 
-**这不是厂商故意坑人**，而是**他们不知道你的实际情况**。
+**这不是公司故意坑人**，而是**他们不知道你的实际情况**。
 
 **所以做实施的人，价值就在于"把文档翻译成能跑的东西"。**
 
@@ -4997,7 +4984,7 @@ $content -split "`n" | Where-Object { $_ -match "otelcol_exporter_send_failed" }
 
 我们没有一次性给 13 台机器全配上链路，而是：
 
-1. **先在一台机器上做通**（`10.25.248.241`，Linux）
+1. **先在一台机器上做通**（`*.*.*.241`，Linux）
 2. **观察数据量**
 3. **再铺到 112**（第一台 Windows）
 4. **再一口气做 113（4 个应用）**
@@ -5021,24 +5008,9 @@ $content -split "`n" | Where-Object { $_ -match "otelcol_exporter_send_failed" }
 | ④ 链路 | 10 个应用（采样 10%） | ✅ |
 | ⑤ 日志 | 暂未接入（二期） | ⏸️ |
 
-**交付物：**
-
-| 文件 | 内容 |
-|---|---|
-| `01-部署台账.csv` | 20 列，每台机器的完整信息 |
-| `01-与厂商文档的偏离说明.md` | 合规核对文档 |
-| `02-单应用接入全流程.md` | 六步法操作手册 |
-| `jmx-prometheus-rules-精简版.yaml` | JMX 精简规则（89 条 vs 几千条） |
-| `make_config.py` | 配置生成脚本 |
-| `app-discovery.ps1` | 应用发现脚本 |
-| `ssh_run.py` | 批量远程执行脚本 |
-| 看板 JSON × 3 | Oracle / Redis / 监控对象总览 |
-
-**踩坑记录：17 个**（都在第十二章）
-
 ---
 
-**如果这篇文章能帮你少踩一个坑，那这几个晚上就没白熬。**
+**如果这篇文章能帮你少踩一个坑，那文章就没白写。**
 
 **祝你的监控项目顺利。**
 
