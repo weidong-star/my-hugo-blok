@@ -4997,6 +4997,1024 @@ $content -split "`n" | Where-Object { $_ -match "otelcol_exporter_send_failed" }
 
 **这就是为什么 112 花了最久（踩了所有坑），而 115 只花了半小时。**
 
+
+
+## 附：重启命令
+
+> **这一节是"运维手册"，不用从头读。**
+> **下次要重启的时候直接翻到这儿，照着命令敲就行。**
+
+### 一、先分清：两个都叫 otel-collector 的东西
+
+**这是最容易搞混的地方，先讲清楚，不然后面全乱。**
+
+我们这套监控里有两个东西名字里都带 `otel-collector`：
+
+| 名字 | 在哪 | 是什么 | 怎么重启 |
+|---|---|---|---|
+| **`signoz-otel-collector`** | **平台服务器**（Docker 容器） | **平台侧的接收器**<br>接收所有探针发来的数据，写进 ClickHouse | `docker compose restart` |
+| **`otelcol-contrib`** | **13 台业务服务器** | **我们部署的探针**<br>采集主机、数据库、应用指标，上报给平台 | Linux：`systemctl`<br>Windows：手工启停 |
+
+**画成图看更清楚：**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  平台服务器（238）                                             │
+│                                                              │
+│   ┌────────────────────────┐        ┌──────────────────┐    │
+│   │ signoz-otel-collector  │───────▶│   ClickHouse     │    │
+│   │ （平台侧接收器，容器）   │  写入   │  （存数据的）     │    │
+│   └───────────▲────────────┘        └────────┬─────────┘    │
+│               │                              │              │
+│               │                              ▼              │
+│               │                    ┌──────────────────┐    │
+│               │                    │  signoz（界面）   │    │
+│               │                    │   :8086          │    │
+│               │                    └──────────────────┘    │
+└───────────────┼──────────────────────────────────────────────┘
+                │
+                │ 4317 端口，各探针把数据发过来
+                │
+    ┌───────────┴───────────┬───────────────┬──────────────┐
+    │                       │               │              │
+┌───▼────────┐      ┌───────▼──────┐  ┌─────▼──────┐  ┌────▼───────┐
+│ 探针        │      │ 探针          │  │ 探针        │  │ 探针  ...  │
+│ otelcol-   │      │ otelcol-     │  │ otelcol-   │  │            │
+│ contrib    │      │ contrib      │  │ contrib    │  │            │
+│ （241）     │      │ （112）       │  │ （113）     │  │            │
+└────────────┘      └──────────────┘  └────────────┘  └────────────┘
+   Linux 3 台                    Windows 10 台
+```
+
+**⭐ 记住这两个特征，就永远不会搞混：**
+
+| | 探针 `otelcol-contrib` | 平台接收器 `signoz-otel-collector` |
+|---|---|---|
+| **数量** | **13 个**（每台业务服务器一个） | **1 个**（就在平台服务器上） |
+| **怎么装的** | 手工部署的绿色程序 | Docker 容器，随平台一起起 |
+| **配置文件** | `/opt/otelcol/config.yaml`（Linux）<br>`C:\otelcol\config.yaml`（Windows） | 在 docker-compose 目录里 |
+| **重启工具** | `systemctl` / `Start-Process` | `docker compose` |
+
+---
+
+### 二、重启探针
+
+#### 2.1 通用流程：三步走，第一步绝不能省
+
+```
+① validate（校验配置）
+      ↓  通过了才继续
+② restart（重启）
+      ↓
+③ verify（验证数据在走）
+```
+
+**⭐ 为什么第一步绝不能省？**
+
+因为**探针是个"配置错了就直接退出"的程序**。你改配置时打错一个字母、缩进多一个空格，重启后它**立刻退出**。
+
+**后果**：监控数据**静默中断**——平台上没有报错、没有告警，只是**数据不再更新了**。
+
+**等你发现的时候，可能已经过了好几天。** 而监控的价值恰恰在于"出问题的那一刻有数据"，数据断了的这段时间，等于**裸奔**。
+
+**所以：`validate` 通过 = 配置合法，才允许重启。**
+
+#### 2.2 Linux 探针（3 台：241、237、131）
+
+**当时是用 systemd 托管的**，所以重启非常简单。
+
+**systemd 是什么？** 它是绝大多数现代 Linux 的"1 号进程"（系统启动后第一个进程），负责管理所有服务。`systemctl` 就是跟它对话的命令。
+
+**为什么探针要用 systemd 托管？** 三个好处：
+
+| 好处 | 说明 |
+|---|---|
+| **开机自启** | 服务器重启后自动拉起，不用人工干预 |
+| **崩溃自动重启** | 配了 `Restart=always`，挂了 10 秒自动回来 |
+| **日志统一** | 输出进 journal，用 `journalctl` 就能看 |
+
+**这三个好处，正是 Windows 那边缺的**（第五节详说）。
+
+**重启：**
+
+```bash
+systemctl restart otelcol-contrib
+```
+
+**看状态：**
+
+```bash
+systemctl status otelcol-contrib
+```
+
+**期望输出（重点看这三行）：**
+
+```
+● otelcol-contrib.service - OpenTelemetry Collector Contrib
+     Loaded: loaded (/etc/systemd/system/otelcol-contrib.service; enabled; ...)
+     Active: active (running) since Sun 2026-09-28 10:00:00 CST; 2h ago
+   Main PID: 12345 (otelcol-contrib)
+```
+
+| 关键词 | 含义 | 不对的话说明什么 |
+|---|---|---|
+| `loaded ... enabled` | 服务已加载，**开机自启已开** | 显示 `disabled` → **服务器重启后不会自动起来** |
+| **`active (running)`** | **正在运行**（要的就是这个） | 显示 `failed` / `inactive` → 启动失败，去看日志 |
+| `Main PID: 12345` | 进程号 | **每次重启这个号会变，可以用它确认"真的重启了"** |
+
+**看日志：**
+
+```bash
+journalctl -u otelcol-contrib -n 50 --no-pager
+```
+
+**参数逐个解释：**
+
+| 参数 | 含义 |
+|---|---|
+| `journalctl` | 查看 systemd 收集的日志 |
+| `-u otelcol-contrib` | **`-u` = unit，只看这个服务的日志**（不看整个系统的） |
+| `-n 50` | 只看**最后 50 行** |
+| `--no-pager` | **不要用分页器** |
+
+**⚠️ `--no-pager` 为什么必须加？**
+
+不加的话，输出会进入 `less` 分页模式，**你只能看到第一屏，要按空格翻页、按 `q` 退出**。
+
+**如果在脚本里执行，不加 `--no-pager` 会直接卡住**（脚本等不到命令结束）。
+
+**常用变体：**
+
+```bash
+journalctl -u otelcol-contrib -f                      # 实时跟踪（像 tail -f）
+journalctl -u otelcol-contrib --since "10 minutes ago"  # 最近 10 分钟
+journalctl -u otelcol-contrib -p err                  # 只看错误级别
+```
+
+**完整的"改配置后重启"流程：**
+
+```bash
+# ① 改配置
+vi /opt/otelcol/config.yaml
+
+# ② 校验（输出为空 = 通过）
+/opt/otelcol/otelcol-contrib validate --config=/opt/otelcol/config.yaml
+
+# ③ 校验通过才重启
+systemctl restart otelcol-contrib
+
+# ④ 等 30 秒，确认服务在跑
+sleep 30
+systemctl is-active otelcol-contrib          # 期望输出：active
+```
+
+**⭐ `systemctl is-active` 是个好东西。**
+
+它**只输出一个词**（`active` / `inactive` / `failed`），非常适合写脚本判断：
+
+```bash
+if [ "$(systemctl is-active otelcol-contrib)" = "active" ]; then
+    echo "探针正常"
+else
+    echo "探针有问题！"
+fi
+```
+
+比 `systemctl status` 好用——因为 `status` 输出一大段，还得去 grep。
+
+**systemd 常用命令速查：**
+
+| 命令 | 作用 | 什么时候用 |
+|---|---|---|
+| `systemctl start otelcol-contrib` | 启动 | 服务停了 |
+| `systemctl stop otelcol-contrib` | 停止 | 要维护、要换配置 |
+| `systemctl restart otelcol-contrib` | **重启** | 改了配置 |
+| `systemctl status otelcol-contrib` | 看状态 | 排查 |
+| `systemctl is-active otelcol-contrib` | 只问"活着吗" | 写脚本 |
+| `systemctl enable otelcol-contrib` | **设置开机自启** | 新装 |
+| `systemctl disable otelcol-contrib` | 取消开机自启 | 要下线 |
+| `systemctl daemon-reload` | **重新加载服务定义** | **改了 `.service` 文件之后必须执行** |
+
+**⚠️ 重点说 `daemon-reload`：**
+
+**systemd 不会自动发现你新加或修改的 `.service` 文件。** 它把服务定义**缓存在内存里**。你改了 `.service` 文件后，必须显式告诉它"重新读一遍"。
+
+**忘了这一步的典型症状：**
+
+```
+# systemctl start otelcol-contrib
+Failed to start otelcol-contrib.service: Unit otelcol-contrib.service not found.
+```
+
+**文件明明就在 `/etc/systemd/system/` 里，它说"找不到"——就是没 reload。**
+
+**⭐ 注意区分**：改 `config.yaml` **不需要** `daemon-reload`（那是程序自己的配置）；**改 `.service` 文件才需要**。
+
+#### 2.3 Windows 探针（10 台）
+
+**⚠️ 这边的情况不一样：探针是手工启动的，没有做成服务。所以重启要"先杀掉，再启动"。**
+
+```powershell
+# ① 校验配置（改了配置才需要，没改可跳过）
+& "C:\otelcol\otelcol-contrib.exe" validate --config="C:\otelcol\config.yaml"
+
+# ② 杀掉旧进程
+Stop-Process -Name "otelcol-contrib" -Force
+Start-Sleep 3
+
+# ③ 启动新进程
+Start-Process -FilePath "C:\otelcol\otelcol-contrib.exe" `
+    -ArgumentList "--config=C:\otelcol\config.yaml" `
+    -WindowStyle Hidden
+
+# ④ 确认起来了（看 Id 和 StartTime 是不是新的）
+Get-Process | Where-Object { $_.ProcessName -eq "otelcol-contrib" } | Select-Object Id,StartTime
+```
+
+**逐条解释：**
+
+| 命令 / 参数 | 作用 |
+|---|---|
+| `& "C:\..."` | PowerShell 里执行**带引号的路径**必须加 `&`（调用运算符）。不加的话 PowerShell 会把引号里的东西当**文本**而不是命令 |
+| `Stop-Process -Name "otelcol-contrib"` | **按进程名**杀进程 |
+| `-Force` | 强制结束（不加的话可能有确认提示） |
+| `Start-Sleep 3` | 等 3 秒，**让系统把端口彻底释放** |
+| `Start-Process` | 启动新进程 |
+| `-FilePath` | 程序路径 |
+| `-ArgumentList` | 传给程序的参数 |
+| **`-WindowStyle Hidden`** | **隐藏窗口**（下面重点讲） |
+
+**⭐⭐ `-WindowStyle Hidden` 千万别漏。**
+
+**漏了会发生什么？** 探针会**带一个可见的命令行窗口**跑起来。然后：
+
+- 谁在服务器上看到这个黑框，**顺手点了 ×** → **探针没了**
+- 或者按了 `Ctrl+C` → 同样没了
+- **而且没人知道监控已经停了**
+
+**加了这个参数，探针就在后台安静地跑，只能通过任务管理器结束。**
+
+**⚠️ 验证重启成功：**
+
+```powershell
+Get-Process | Where-Object { $_.ProcessName -eq "otelcol-contrib" } | Select-Object Id,StartTime
+```
+
+**`StartTime` 应该是刚才那一分钟** —— 这说明进程是新的，不是老的还活着。
+
+#### 2.4 ⚠️⚠️ 杀进程的红线（这条要刻在脑子里）
+
+```powershell
+# ✅ 正确：只杀探针
+Stop-Process -Name "otelcol-contrib" -Force
+
+# ❌ 绝对禁止：会杀掉所有 java.exe！
+Stop-Process -Name java -Force
+```
+
+**为什么这条这么危险？**
+
+一台业务服务器上跑的 Java 进程可能包括：
+
+```
+java.exe  ← Tomcat 应用（业务系统！）
+java.exe  ← Tomcat 应用（业务系统！）
+java.exe  ← ZooKeeper（中间件！所有应用都依赖它！）
+java.exe  ← Nacos（注册中心！）
+java.exe  ← 某个 jar 应用
+```
+
+**你一个 `-Name java` 下去，全杀。**
+
+**我们在 112 上真的踩过这个坑：**
+
+> 那天处理一个端口占用问题，随手敲了 `Stop-Process -Name java -Force`。
+>
+> 结果 **ZooKeeper 也被杀了**。
+>
+> ZooKeeper 一挂，上面所有业务应用（BSP、Form、Screen）**全部启动失败**——因为它们启动时要连 ZooKeeper 做服务注册。
+>
+> 更糟的是，ZooKeeper 被强杀时**正在写事务日志，日志文件写坏了**。重新启动 ZK 时报：
+>
+> ```
+> java.io.IOException: Unreasonable length = 77959356
+>     at org.apache.zookeeper.server.persistence.Util.readTxnBytes
+> ```
+>
+> **最后只能清空 ZK 的数据目录重建**（好在里面只有服务注册信息，不是业务数据），才恢复过来。
+>
+> **前后折腾了半小时。**
+
+**⭐ 正确的杀进程姿势（按精确度排序）：**
+
+```powershell
+# 方式一：按 PID 杀（最精确）
+Stop-Process -Id 1234 -Force
+
+# 方式二：按命令行特征过滤（推荐用于批量）
+Get-CimInstance Win32_Process -Filter "Name='java.exe'" |
+    Where-Object { $_.CommandLine -like "*one-manage*" } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+
+# 方式三：按端口找 PID，再杀（最精准）
+$line = netstat -ano | Select-String ":9999 .*LISTENING"
+$targetPid = $line.ToString().Trim().Split()[-1]
+Stop-Process -Id $targetPid -Force
+```
+
+**至于探针，直接按名字杀是安全的**——因为它的进程名是唯一的 `otelcol-contrib`，不会误伤别的程序。
+
+**⭐ 顺便说一个同类经验：Linux 上的 `kill -9` 也一样危险。**
+
+`-9` 是**强杀信号**，它**不给进程任何清理的机会**（不能保存数据、不能关闭文件），直接杀掉。
+
+**对数据库、ZooKeeper 这类会写日志的中间件，`kill -9` 是危险的。** 正确做法是**先"优雅停止"**：
+
+```bash
+zkServer.sh stop        # ZooKeeper
+shutdown.sh             # Tomcat
+```
+
+**等优雅停止超时了还不停，再考虑 `kill -9`。**
+
+---
+
+### 三、重启 SigNoz 平台（Docker）
+
+#### 3.1 第一步：SSH 到平台服务器
+
+```bash
+ssh root@*.*.*.238
+```
+
+#### 3.2 第二步：看看容器都在不在
+
+```bash
+docker ps --format 'table {{.Names}}\t{{.Status}}'
+```
+
+**参数解释：**
+
+| 参数 | 作用 |
+|---|---|
+| `docker ps` | 列出**正在运行**的容器（加 `-a` 才显示已停止的） |
+| `--format 'table ...'` | **自定义输出格式**，只显示我要的列 |
+
+**期望输出（类似这样）：**
+
+```
+NAMES                       STATUS
+signoz                      Up 3 days
+signoz-otel-collector       Up 3 days
+clickhouse                  Up 3 days
+zookeeper                   Up 3 days
+schema-migrator             Exited (0) 3 days ago
+```
+
+**每个容器是干什么的：**
+
+| 容器 | 作用 | 端口 |
+|---|---|---|
+| **`signoz`** | **界面 + 查询服务**（你打开的那个 8086 页面） | 8086、3301 |
+| **`signoz-otel-collector`** | **数据接收器**（探针往这儿发数据） | 4317、4318 |
+| **`clickhouse`** | **数据库**（所有监控数据存在这儿） | 9000、8123 |
+| **`zookeeper`** | ClickHouse 集群协调用 | 2181 |
+| `schema-migrator` | 数据库表结构初始化 | — |
+
+**⭐ 看到 `schema-migrator` 是 `Exited (0)` 不用慌** —— 它就是个"建表脚本"，**跑完就退出，这是设计如此**。
+
+#### 3.3 第三步：找到 docker-compose 的目录（关键）
+
+**先"问 Docker"：**
+
+```bash
+docker inspect signoz --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'
+```
+
+**输出就是安装目录**，比如：
+
+```
+/opt/signoz/deploy/docker
+```
+
+**⭐ 这条命令的原理：**
+
+用 Docker Compose 启动容器时，Compose 会**自动往容器上打一个标签**，记录"我是从哪个目录的 compose 文件启动的"。
+
+**所以问 Docker 就知道目录在哪，不用猜、不用 `find` 全盘搜。**
+
+**如果还想看更多信息：**
+
+```bash
+# 看容器是从哪个 compose 文件启动的
+docker inspect signoz --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}'
+
+# 看 compose 项目名
+docker inspect signoz --format '{{index .Config.Labels "com.docker.compose.project"}}'
+```
+
+#### 3.4 第四步：重启（三种方式，按需选）
+
+**方式一：原地重启（最常用，最平滑）**
+
+```bash
+cd <上面查到的目录>
+docker compose restart
+```
+
+**做什么**：把所有容器**重启一遍**（停掉，再起来），**不删除、不重建**。
+
+**特点**：最快，容器 ID 不变，**数据完全不受影响**。
+
+**什么时候用**：平时重启、平台卡了、内存占满了。
+
+**方式二：彻底重建（改配置时用）**
+
+```bash
+cd <上面查到的目录>
+docker compose down
+docker compose up -d
+```
+
+**做什么**：`down` 把容器**删除**，`up -d` 根据 compose 文件**重新创建**。
+
+**什么时候用**：
+- **改了 `docker-compose.yaml`**
+- **改了 `.env` 文件**
+- 方式一重启后问题依旧
+
+**`up -d` 的 `-d` 是什么？** = detached，**后台运行**。不加 `-d` 会占住终端，`Ctrl+C` 就把服务停了。
+
+**⚠️ 用 `down` 之前必须知道的事：**
+
+> **`docker compose down` 会删除容器，但不会删数据卷（volume）。**
+> **ClickHouse 的数据存在 volume 里，所以数据是安全的。**
+>
+> **但是——如果加了 `-v` 参数，就会连数据卷一起删，所有监控数据全没了。**
+>
+> **❌ 千万不要随手敲 `docker compose down -v`**
+
+**这个 `-v` 是"删库跑路"级别的操作。**
+
+**方式三：只重启某一个组件（⭐ 最推荐）**
+
+**大多数时候，你不需要重启整个平台：**
+
+```bash
+docker compose restart signoz                     # 只重启界面/查询服务
+docker compose restart signoz-otel-collector      # 只重启数据接收器
+docker compose restart clickhouse                 # 只重启数据库
+```
+
+**⭐ 这是最专业的姿势：改哪个重启哪个，影响面最小。**
+
+**举个例子**：如果只是探针数据发不上来，`docker compose restart signoz-otel-collector` 就够了——**界面和数据库完全不受影响，用户在页面上看历史数据一点感觉都没有。**
+
+**如果整个 `docker compose restart`，那界面也要断几十秒，纯属自找麻烦。**
+
+#### 3.5 第五步：看日志
+
+```bash
+docker compose logs --tail=50                     # 所有服务最后 50 行
+docker compose logs --tail=50 signoz              # 只看 signoz
+docker compose logs -f signoz                     # 实时跟踪
+docker compose logs -t --tail=100 signoz          # 带时间戳
+```
+
+**参数解释：**
+
+| 参数 | 作用 |
+|---|---|
+| `--tail=50` | 只看最后 50 行（**不加的话会从头打印，可能刷几万行**） |
+| `-f` | follow，**实时跟踪**（`Ctrl+C` 退出） |
+| `-t` | 显示时间戳 |
+| `--since 10m` | 最近 10 分钟 |
+
+**⭐ `docker compose logs` 的一个方便之处**：它会**自动合并多个服务的日志**并标注来源。你在 compose 目录里执行，不用记容器名。
+
+#### 3.6 第六步：验证平台起来了
+
+```bash
+docker compose ps                                  # 容器都是 Up
+
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8086
+# 期望输出：200 或 302
+```
+
+**`curl -o /dev/null -w "%{http_code}"` 是什么意思？**
+
+| 参数 | 作用 |
+|---|---|
+| `-s` | silent，不显示进度条 |
+| `-o /dev/null` | **把响应体丢掉**（我们只要状态码，不要那一大坨 HTML） |
+| `-w "%{http_code}\n"` | **只输出 HTTP 状态码** |
+
+**这是检查"服务活着吗"的标准写法**，比把整个页面拉下来再判断要干净。
+
+---
+
+### 四、重启后怎么验证
+
+**重启完不看验证 = 没重启。**
+
+#### 4.1 探针侧：验证"铁三角"
+
+```bash
+# ① 接收：探针从各个采集器收了多少
+curl -s http://127.0.0.1:18888/metrics | grep '^otelcol_receiver_accepted_metric_points'
+
+# ② 发送：往平台成功发了多少
+curl -s http://127.0.0.1:18888/metrics | grep '^otelcol_exporter_sent_metric_points'
+
+# ③ 失败：发失败了几次（应该没有输出）
+curl -s http://127.0.0.1:18888/metrics | grep '^otelcol_exporter_send_failed'
+```
+
+**判断标准：**
+
+```
+接收：hostmetrics 3064 + jmx_bsp 510 + jmx_form 510 = 4084
+发送：otlp 4084                              ← 完全相等 ✅
+失败：（无输出）                              ← 0 失败 ✅
+```
+
+**⭐ 为什么是 `18888` 端口？**
+
+这是探针**自己的运行状态接口**（在配置里叫 `service.telemetry.metrics.address`）。
+
+**注意区分三个端口：**
+
+| 端口 | 谁的 | 干什么 |
+|---|---|---|
+| **4317** | 平台的 | 探针往这儿**发**数据 |
+| **4318** | 平台的 | 应用往这儿**发**链路 |
+| **18888** | **探针自己的** | **你查看探针状态** |
+
+**`18888` 是我们排查问题的"仪表盘"**——探针收了多少、发了多少、失败多少，全都能看到。
+
+**Windows 版本（注意用 `-split` 而不是 `Select-String`）：**
+
+```powershell
+$content = (Invoke-WebRequest -Uri "http://127.0.0.1:18888/metrics" -UseBasicParsing).Content
+
+Write-Host "=== 接收 ==="
+$content -split "`n" | Where-Object { $_ -match "otelcol_receiver_accepted_metric_points" }
+
+Write-Host "=== 发送 ==="
+$content -split "`n" | Where-Object { $_ -match "otelcol_exporter_sent_metric_points" }
+
+Write-Host "=== 失败（应为空）==="
+$content -split "`n" | Where-Object { $_ -match "otelcol_exporter_send_failed" }
+```
+
+**⭐ 为什么用 `-split` 而不是 `Select-String`？**
+
+因为在 PowerShell 5.1 里，`Select-String` 处理从 `Invoke-WebRequest` 拿到的多行字符串时**有时匹配不到**（涉及行尾符的处理）。
+
+**用 `-split` 手动拆成数组，再用 `Where-Object -match` 过滤，更可靠。**
+
+**这个坑我们也踩过**：一开始用 `Select-String` 什么都搜不到，以为探针没数据，其实是匹配方式的问题。
+
+**⭐ 为什么要"等一会儿"再看？**
+
+因为探针是**每 60 秒采集一次**的。刚重启完，计数器还是 0 或者很小。**建议等 70 秒以上**，让它至少完成一轮采集，数字才有意义。
+
+#### 4.2 平台侧：验证"端到端"
+
+**最终判断标准只有一条：数据到没到平台。**
+
+**方式一：打开界面看**
+
+- 「指标」页面搜 `jvm_memory_bytes_used`，过滤 `service.name` → **有曲线 = 通了**
+- 「服务」页面 → **能看到服务名 = 链路通了**
+- 「基础设施」→「主机」→ **能看到主机 = 主机指标通了**
+
+**方式二：看队列有没有积压**
+
+```bash
+curl -s http://127.0.0.1:18888/metrics | grep '^otelcol_exporter_queue_size'
+```
+
+**期望：`0`**（表示队列里没有积压，数据都能及时发出去）。
+
+**如果这个数一直在涨**，说明平台收不过来或连不上，要查平台侧。
+
+#### 4.3 一个完整的验证脚本（Linux 探针）
+
+```bash
+#!/bin/bash
+echo "=== 1) 服务状态 ==="
+systemctl is-active otelcol-contrib
+
+echo
+echo "=== 2) 等一轮采集 ==="
+sleep 70
+
+echo
+echo "=== 3) 铁三角 ==="
+curl -s http://127.0.0.1:18888/metrics | grep '^otelcol_receiver_accepted_metric_points'
+curl -s http://127.0.0.1:18888/metrics | grep '^otelcol_exporter_sent_metric_points'
+
+echo
+echo "=== 4) 失败数（应为空）==="
+curl -s http://127.0.0.1:18888/metrics | grep '^otelcol_exporter_send_failed'
+
+echo
+echo "=== 5) 队列积压（应为 0）==="
+curl -s http://127.0.0.1:18888/metrics | grep '^otelcol_exporter_queue_size'
+```
+
+---
+
+### 五、⚠️ Windows 探针没有开机自启（当前最大的隐患）
+
+#### 5.1 现状：这是个真实的风险
+
+| 平台 | 探针托管方式 | 开机自启 | 崩溃自动重启 |
+|---|---|---|---|
+| **Linux（3 台）** | systemd 服务 | ✅ 有 | ✅ 有（`Restart=always`） |
+| **Windows（10 台）** | **手工 `Start-Process`** | ❌ **没有** | ❌ **没有** |
+
+**这意味着什么？**
+
+| 情况 | Linux 探针 | Windows 探针 |
+|---|---|---|
+| 服务器重启 | ✅ 自动起来 | ❌ **不会，监控永久中断** |
+| 管理员**注销登录**（Logoff） | ✅ 不受影响 | ❌ **进程被杀，监控中断** |
+| RDP **断开连接**（Disconnect） | ✅ 不受影响 | ✅ 不受影响 |
+| 探针自己崩了 | ✅ 10 秒后自动重来 | ❌ **不会，监控永久中断** |
+| 有人手滑关了黑窗口 | ✅ 无窗口可关 | ❌ **监控中断** |
+
+**❗ 最要命的是：这些情况下，平台上"看起来一切正常"——只是数据不再更新了。**
+
+**没有告警、没有报错。** 你可能几天后才发现"咦，这个应用的曲线怎么是平的？"
+
+#### 5.2 三种解决方案对比
+
+| 方案 | 难度 | 优点 | 缺点 |
+|---|---|---|---|
+| **任务计划程序**（Windows 自带） | ⭐ 低 | 不用装东西，图形界面点点就行 | 功能相对简单 |
+| **NSSM** | ⭐⭐ 中 | 把任意程序包成标准 Windows 服务，功能强 | 要下载第三方工具 |
+| **WinSW** | ⭐⭐ 中 | 类似 NSSM，配置用 XML 文件 | 要下载第三方工具 |
+
+**建议先用"任务计划程序"**——不用装东西，10 台机器点一遍就好。
+
+#### 5.3 用任务计划程序配置自启（详细步骤）
+
+**打开**：
+
+```
+Win + R  →  输入 taskschd.msc  →  回车
+```
+
+**⚠️ 注意用"创建任务"，不是"创建基本任务"。**
+
+- **"创建基本任务"**：向导式，**选项少**，不支持"不管用户是否登录都要运行"
+- **"创建任务"**：完整界面，**所有选项都能配**（我们要的就是它）
+
+**①「常规」标签页**
+
+| 选项 | 设置 |
+|---|---|
+| 名称 | `OpenTelemetry 探针` |
+| **安全选项** | **选"不管用户是否登录都要运行"** |
+| **权限** | ✅ **勾选"使用最高权限运行"** |
+
+**⭐ "不管用户是否登录都要运行"这一项是关键。**
+
+**不勾的话**：任务只在**管理员登录后**才启动。也就是说——**服务器重启后如果没人登录，探针就是不起。**
+
+**⭐ "使用最高权限运行"也很重要**：探针要读一些系统信息（进程列表、网络连接），没有管理员权限会采集不全。
+
+**②「触发器」标签页**
+
+```
+新建  →  开始任务：选择「启动时」
+       →  延迟任务：1 分钟        ← 建议加
+       →  确定
+```
+
+**为什么要延迟 1 分钟？** 因为服务器刚启动时，网络可能还没完全就绪。探针启动后如果连不上平台，虽然会重试，但延迟一下更稳妥。
+
+**③「操作」标签页**
+
+```
+新建
+  → 操作：启动程序
+  → 程序或脚本：  C:\otelcol\otelcol-contrib.exe
+  → 添加参数：    --config=C:\otelcol\config.yaml
+  → 起始于：      C:\otelcol
+  → 确定
+```
+
+**⭐ "起始于"这一栏别漏。**
+
+它是**工作目录**。如果探针或它的配置里用了相对路径，不设置工作目录就会找不到文件。**填上它所在的目录最保险。**
+
+**④「设置」标签页（这一页有坑）**
+
+| 选项 | 建议 |
+|---|---|
+| 允许按需运行任务 | ✅ 勾（方便手动测试） |
+| **如果任务失败，按以下频率重新启动** | ✅ 勾，间隔 `1 分钟`，尝试 `3` 次 |
+| **如果任务运行时间超过以下时间，停止任务** | ❌ **不要勾！** |
+| 如果以下时间计算机使用电池供电，则停止 | ❌ 不勾 |
+
+**⚠️ "如果任务运行时间超过…停止任务"这一项是坑！**
+
+**它默认可能是勾选状态**（比如"3 天"）。**探针是永久运行的程序，被这个规则杀掉就白配了。** 一定要确认它没勾。
+
+**⑤ 保存并测试**
+
+```
+确定  →  输入管理员密码  →  确定
+```
+
+```powershell
+# 在任务计划程序里右键这个任务 → 运行
+# 然后看进程
+Get-Process | Where-Object { $_.ProcessName -eq "otelcol-contrib" } | Select-Object Id,StartTime
+```
+
+**真正的验证是重启服务器**（如果允许的话）——重启后**不登录**，直接 RDP 连上看进程在不在。
+
+#### 5.4 更强的方案：NSSM（挂了自动重启）
+
+**任务计划程序只能保证"开机启动"，但不能保证"挂了自动重启"。**
+
+**要更强保障就用 NSSM：**
+
+```powershell
+# 下载 nssm.exe 后
+nssm install OtelcolProbe "C:\otelcol\otelcol-contrib.exe" "--config=C:\otelcol\config.yaml"
+nssm set OtelcolProbe AppDirectory "C:\otelcol"
+nssm set OtelcolProbe Start SERVICE_AUTO_START
+nssm set OtelcolProbe AppExit Default Restart        # ← 挂了自动重启
+nssm set OtelcolProbe AppRestartDelay 10000          # ← 10 秒后重试
+nssm start OtelcolProbe
+```
+
+**NSSM 会把探针注册成一个标准 Windows 服务**，于是就有了和 Linux systemd 一样的能力：开机自启、崩溃自动重启、`services.msc` 里可见可管。
+
+| 参数 | 作用 |
+|---|---|
+| `nssm install <服务名> <程序> <参数>` | 创建服务 |
+| `AppDirectory` | 工作目录 |
+| `Start SERVICE_AUTO_START` | 开机自启 |
+| `AppExit Default Restart` | **退出时自动重启** |
+| `AppRestartDelay 10000` | 重启延迟 10 秒（毫秒） |
+
+---
+
+### 六、常见问题排查
+
+#### 6.1 探针启动失败（Linux）
+
+**症状**：`systemctl status` 显示 `failed`。
+
+```bash
+# ① 先看日志里的具体报错
+journalctl -u otelcol-contrib -n 100 --no-pager
+```
+
+**常见报错对照表：**
+
+| 报错关键词 | 原因 | 解决 |
+|---|---|---|
+| `unknown type: "xxx"` | **配置里用了这个版本不支持的采集器** | 用 `components` 命令查支持列表，删掉不支持的 |
+| `cannot unmarshal` | **配置语法错误**（缩进、引号） | YAML 缩进必须用空格不能用 Tab |
+| `Address already in use` | **端口被占用** | `ss -lntp \| grep ':18888 '` 找占用者 |
+| `permission denied` | **权限不足** | systemd 里配 `User=root` |
+| `no such file or directory` | **路径写错** | 检查 `ExecStart` 里的路径 |
+
+**⭐ 一个万能做法：先单独手工跑一遍，看它报什么。**
+
+```bash
+/opt/otelcol/otelcol-contrib --config=/opt/otelcol/config.yaml
+```
+
+**前台运行，报错直接打在屏幕上**，比翻日志快。
+
+#### 6.2 探针起来了，但平台没数据
+
+**这是最常见的场景。按这个顺序查：**
+
+```
+① 探针自己收到了吗？     → 查 18888 的 receiver 计数
+② 探针发出去了吗？       → 查 18888 的 exporter sent 计数
+③ 发失败了吗？           → 查 18888 的 send_failed
+④ 网络通吗？             → Test-NetConnection / /dev/tcp
+⑤ 平台收了吗？           → 查平台容器日志
+```
+
+```bash
+# ④ 网络通吗（Linux，不需要装 telnet/nc）
+timeout 3 bash -c 'cat < /dev/null > /dev/tcp/192.168.140.60/4317' && echo "通" || echo "不通"
+```
+
+**⭐ `cat < /dev/null > /dev/tcp/IP/端口` 这个写法解释一下。**
+
+这是 **bash 内置的 TCP 客户端**——不需要装 `telnet` 或 `nc`，直接用它测端口通不通。
+
+- `/dev/tcp/主机/端口` 是一个**虚拟文件**，bash 特殊支持
+- 往它写数据 = 建立 TCP 连接
+- **连不上会立刻报错**，连上就成功
+
+**这是 Linux 上最"轻量"的端口测试方法**，任何有 bash 的机器都能用。
+
+**⚠️ 常见原因对照：**
+
+| 现象 | 原因 |
+|---|---|
+| 接收有、发送 0、失败 0 | 探针刚启动，还没到批量发送的时间（`batch.timeout`，默认 10 秒）→ **等一下** |
+| 接收有、发送 0、失败在涨 | **网络不通，或平台地址填错** → 检查 A 区/B 区 |
+| 接收 0 | **采集器没工作** → 检查采集器配置 |
+| 发送 = 接收、失败 0，但平台看不到 | **平台侧问题**，或**标签/过滤条件写错了** |
+
+**⭐ 最后那一行要特别注意。**
+
+**数据发上去了、平台也收到了，但你在界面上搜不到** —— 很可能是**过滤条件写错了**（比如 `service.name` 拼错，或者大小写不对）。
+
+**排查方法**：在 SigNoz 的「指标」页面**不加任何过滤**，直接搜指标名，看有没有数据。**有的话就是过滤条件的问题。**
+
+#### 6.3 平台页面打不开
+
+```bash
+docker compose ps                      # ① 容器在不在
+docker compose logs --tail=100 signoz  # ② 看日志
+ss -lntp | grep ':8086 '               # ③ 端口在不在监听
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8086   # ④ 本机能不能访问
+free -h                                # ⑤ 内存够不够
+docker stats --no-stream               # ⑥ 看容器资源占用
+```
+
+**`docker stats` 是看容器资源占用的神器：**
+
+```
+CONTAINER ID   NAME         CPU %     MEM USAGE / LIMIT     MEM %
+abc123         signoz       2.5%      350MiB / 30GiB        1.1%
+def456         clickhouse   15.2%     8.5GiB / 30GiB        28.3%
+```
+
+- **`--no-stream`** = 只输出一次快照（不加的话会一直刷，像 `top`）
+
+**⭐ `clickhouse` 内存占用高是正常的**（它会把热数据缓存在内存里）。**但如果接近 LIMIT，就要考虑加内存了。**
+
+#### 6.4 重启期间丢数据了吗？
+
+**短时间重启（几十秒）一般不会丢，因为探针有"重试队列"：**
+
+```
+数据发不出去
+   ↓
+进内存队列（默认上限 1000 批）
+   ↓
+平台回来了 → 自动重发 ✅
+```
+
+**但如果重启很久（几分钟以上），队列满了就开始丢。**
+
+**怎么判断有没有丢：**
+
+```bash
+curl -s http://127.0.0.1:18888/metrics | grep '^otelcol_exporter_queue_size'
+curl -s http://127.0.0.1:18888/metrics | grep '^otelcol_exporter_send_failed'
+```
+
+- **`queue_size` 平时应该是 0**，重启期间会短暂上涨，恢复后回落 → **正常**
+- **`send_failed` 是累计值**，重启期间会涨，**恢复后不再涨就没问题**
+
+**判断标准**：
+
+> **重启后观察 5 分钟，如果 `send_failed` 不再增长、`queue_size` 回到 0，说明数据都补上了。**
+
+**⭐ 一个重要的认知：监控数据丢一点，不比业务数据丢一点那么严重。**
+
+业务数据（订单、审批件）丢了是事故；监控数据丢几分钟，只是那段时间的曲线有缺口。**所以重启平台时不用过度紧张。**
+
+**但反过来**：监控数据**连续断几个小时没人发现**，才是真问题——因为那意味着**这段时间出了故障你也看不到**。**这才是要配告警的地方。**
+
+---
+
+### 七、重启检查清单（照着勾）
+
+**重启探针前**
+
+- [ ] 确认要重启的是**探针**（13 台业务服务器），不是**平台接收器**（238 上）
+- [ ] 如果改了配置：先跑 `validate`，**通过才继续**
+- [ ] 确认没有正在排查的故障（别把现场破坏了）
+
+**重启探针（Linux）**
+
+- [ ] `systemctl restart otelcol-contrib`
+- [ ] `systemctl is-active otelcol-contrib` → 期望 `active`
+- [ ] 等 70 秒
+- [ ] 查铁三角：接收 = 发送，失败为空
+
+**重启探针（Windows）**
+
+- [ ] `validate` 配置
+- [ ] **`Stop-Process -Name "otelcol-contrib" -Force`**（⚠️ 确认是 `otelcol-contrib`，**不是 `java`**）
+- [ ] `Start-Process ... -WindowStyle Hidden`（**别漏 Hidden**）
+- [ ] `Get-Process` 确认新进程起来了
+- [ ] 等 70 秒，查铁三角
+
+**重启 SigNoz 平台前**
+
+- [ ] SSH 到平台服务器
+- [ ] `docker compose ps` 看当前状态（**记下来，好对比**）
+- [ ] 确认 compose 目录（`docker inspect`）
+- [ ] **确认自己不会用到 `-v` 参数**
+
+**重启 SigNoz 平台**
+
+- [ ] 决定范围：整个平台（`restart`）还是单个组件（`restart signoz`）
+- [ ] 执行重启
+- [ ] `docker compose ps` → 容器都是 `Up`
+- [ ] `docker compose logs --tail=50` → 无报错
+- [ ] 界面能访问、能查到数据
+
+**重启后（30 分钟内）**
+
+- [ ] 在 SigNoz「指标」页面确认**新的数据点在进来**
+- [ ] 在探针上看 `queue_size` 回到 0
+- [ ] 在探针上看 `send_failed` 不再增长
+- [ ] 记一笔：**什么时候重启的、为什么重启、有没有异常**
+
+---
+
+### 八、命令速查表
+
+**探针（Linux）**
+
+| 操作 | 命令 |
+|---|---|
+| 重启 | `systemctl restart otelcol-contrib` |
+| 状态 | `systemctl status otelcol-contrib` |
+| 活着吗 | `systemctl is-active otelcol-contrib` |
+| 日志 | `journalctl -u otelcol-contrib -n 50 --no-pager` |
+| 实时日志 | `journalctl -u otelcol-contrib -f` |
+| 校验配置 | `/opt/otelcol/otelcol-contrib validate --config=/opt/otelcol/config.yaml` |
+| 前台调试 | `/opt/otelcol/otelcol-contrib --config=/opt/otelcol/config.yaml` |
+| 看支持的采集器 | `/opt/otelcol/otelcol-contrib components` |
+| 看铁三角 | `curl -s http://127.0.0.1:18888/metrics \| grep -E 'accepted_metric_points\|sent_metric_points\|send_failed'` |
+
+**探针（Windows）**
+
+| 操作 | 命令 |
+|---|---|
+| 校验配置 | `& "C:\otelcol\otelcol-contrib.exe" validate --config="C:\otelcol\config.yaml"` |
+| 停止 | `Stop-Process -Name "otelcol-contrib" -Force` |
+| 启动 | `Start-Process -FilePath "C:\otelcol\otelcol-contrib.exe" -ArgumentList "--config=C:\otelcol\config.yaml" -WindowStyle Hidden` |
+| 看进程 | `Get-Process \| Where-Object { $_.ProcessName -eq "otelcol-contrib" } \| Select-Object Id,StartTime` |
+
+**SigNoz 平台（Docker）**
+
+| 操作 | 命令 |
+|---|---|
+| 看运行中容器 | `docker compose ps` |
+| **找 compose 目录** | `docker inspect signoz --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'` |
+| 重启全部 | `docker compose restart` |
+| 重建全部 | `docker compose down && docker compose up -d` |
+| 只重启界面 | `docker compose restart signoz` |
+| 只重启接收器 | `docker compose restart signoz-otel-collector` |
+| 只重启数据库 | `docker compose restart clickhouse` |
+| 看日志 | `docker compose logs --tail=100` |
+| 实时日志 | `docker compose logs -f signoz` |
+| 看资源占用 | `docker stats --no-stream` |
+| 测界面 | `curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8086` |
+
+**端口速查**
+
+| 端口 | 谁的 | 干什么 |
+|---|---|---|
+| **4317** | 平台 | 探针往这儿发**指标**（gRPC） |
+| **4318** | 平台 | 应用往这儿发**链路**（HTTP） |
+| **18888** | **探针自己** | 查看探针状态 |
+| **8086** | 平台 | SigNoz 网页界面 |
+| **9999~9996** | 应用 | JMX 指标（第 N 个应用用 `10000-N`） |
+
+---
+
+### 九、写在最后：重启这件事，简单但容易出事
+
+这一节的命令**大部分都很简单**——`systemctl restart`、`docker compose restart`，一眼就懂。
+
+**但真正会出事的，往往是那些"看起来简单"的地方：**
+
+- 重启前**忘了 validate**，探针静默退出，监控断了几天没人知道
+- Windows 上**顺手敲了 `-Name java`**，把 ZooKeeper 和所有业务系统一起干掉
+- 以为 Windows 探针会自启，**结果服务器重启一次，监控就永远停了**
+- 为了"清理干净"**加了 `-v`**，几个月的监控数据没了
+
+**所以这一节的重点不是"命令怎么写"，而是"动手之前先想三秒"：**
+
+> **我要重启的是哪个东西？**
+> **重启前有没有要先验证的？**
+> **这条命令会不会影响到别的东西？**
+
+**把这三句话问一遍，能避开 90% 的事故。**
+
 ---
 
 ## 附：这次工作的最终成果清单
