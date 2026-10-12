@@ -6017,6 +6017,732 @@ curl -s http://127.0.0.1:18888/metrics | grep '^otelcol_exporter_send_failed'
 
 ---
 
+## 附：JVM 内存与 OOM 排查
+
+> **这一节也是"运维手册"，专门讲一件事：**
+> **应用突然挂了，怎么判断是不是"内存不够"，以及内存该定多少。**
+
+### 一、先分清两个最容易混的参数
+
+**先看这两行，你能看出它们的区别吗？**
+
+```bat
+set "CATALINA_OPTS=%CATALINA_OPTS% -Xms512m -Xmx1536m"                ← ① 
+set "CATALINA_OPTS=%CATALINA_OPTS% -Dotel.traces.sampler.arg=0.1"     ← ② 
+```
+
+**它们写在同一个文件里、挨在一起、都是 `-` 开头、都带数字——但管的是完全不同的两件事。**
+
+| | ① `-Xms/-Xmx` | ② `-Dotel.*` |
+|---|---|---|
+| 管什么 | **JVM 能用多少堆内存** | **给监控 agent 传配置** |
+| 谁读它 | **JVM 自己认识** | **agent 读**（JVM 只是把值记下来） |
+| 调错了会怎样 | ⚠️ **应用 OOM 挂掉** | 监控数据变多/变少，**业务不受影响** |
+| 属于哪一层 | 应用运行环境 | 监控采集 |
+
+**⭐ 用一个类比记住：**
+
+> **`-Xms/-Xmx` = 饭量**（吃不下就饿死）
+> **`-Dotel.*` = 汇报频率**（报多报少不影响干活）
+
+**命令行里其实有三种东西，别混：**
+
+```
+java -Xms512m -Xmx1536m  -javaagent:jmx_prometheus_javaagent.jar=9999:config.yaml
+     └────┬────┘        └────────────────┬────────────────────────────┘
+     ① JVM 标准参数                ② Java Agent（加载外挂）
+
+     -javaagent:opentelemetry-javaagent.jar
+     -Dotel.service.name=INSPUR-DZZW-BSP
+     -Dotel.traces.sampler.arg=0.1
+     └────────────┬─────────────────┘
+          ③ 也是给 agent 用的（-D = 定义系统属性）
+
+     -jar app.jar   ← ④ 应用本身
+```
+
+| 前缀 | 叫什么 | 谁认识它 |
+|---|---|---|
+| **`-X...`** | JVM 扩展参数 | **JVM 自己** |
+| **`-D...`** | **定义系统属性** | **JVM 只是"抄下来存着"，谁用谁读** |
+| **`-javaagent:`** | 加载 Java Agent | JVM（负责把 agent 挂上去） |
+
+**⭐ `-D` 的本质：**
+
+`-D` = Define。**JVM 看到 `-D`，只做一件事：把这对"键=值"记在一个全局表里，然后什么都不做。**
+
+**谁去读？**
+
+- `-Dmyapp.xxx` → **你的 Java 代码**读（`System.getProperty("myapp.xxx")`）
+- `-Dotel.xxx` → **OpenTelemetry agent** 读，用来配置自己
+
+**⚠️ 所以有个坑：`-Dotel.*` 没有 agent 就是废的。**
+
+只写 `-Dotel.traces.sampler.arg=0.1`、忘了写 `-javaagent:opentelemetry-javaagent.jar`：
+
+- JVM 照样把属性记下来
+- **没有任何程序去读它**
+- **什么都不会发生，而且不报错**
+
+**反过来也一样：只写 agent、不写 `-Dotel.*`，agent 会用默认配置跑——采样率默认是 100%。**
+
+**这就是为什么这两个必须成对出现。**
+
+---
+
+### 二、JVM 的内存不止"堆"这一块
+
+**这是最多人误解的地方。**
+
+`-Xmx1536m` **限制的只是"堆"**。JVM 实际占的物理内存要更多：
+
+```
+进程实际占用的物理内存（RSS）
+├── 堆（Heap）              ← 受 -Xmx 限制，1536MB
+├── Metaspace（JDK8）       ← 单独算，默认【无上限】（几百 MB）
+├── 线程栈                  ← 每个线程约 1MB × 线程数
+├── 直接内存（NIO）          ← 默认约等于 -Xmx
+├── Code Cache              ← 约 240MB
+└── JVM 自身开销
+```
+
+**所以配了 `-Xmx1536m` 的应用，进程实际可能占 2.5~3 GB。**
+
+**⭐ 这两个数在我们的监控里能直接看到，对比着看就明白了：**
+
+| 指标 | 含义 |
+|---|---|
+| `jvm_memory_bytes_used{area="heap"}` | **堆**用了多少（受 `-Xmx` 限制） |
+| `jvm_memory_bytes_max{area="heap"}` | **堆**的上限（就是你配的 `-Xmx`） |
+| `process_resident_memory_bytes` | **进程实际占了多少物理内存** |
+
+**在 SigNoz 里搜这三个指标，你会发现：`process_resident_memory_bytes` 明显大于 `jvm_memory_bytes_used`。**
+
+**这就说明"堆"只是 JVM 内存的一部分。**
+
+**⚠️ 为什么要强调这个？**
+
+**因为定内存的时候容易算错账：**
+
+```
+❌ 错误算法：4 个应用 × 1.5GB 堆 = 6GB，机器 8GB，够用！
+
+✅ 正确算法：
+   4 个应用 × 1.5GB 堆 = 6GB
+   + Metaspace 4 × 0.3GB = 1.2GB
+   + 直接内存 4 × 1.5GB = 6GB（！）
+   + 线程栈、Code Cache ...
+   → 早就爆了
+```
+
+**⭐ 结论：堆设 1.5GB，实际至少要按 2.5~3GB 给机器留空间。**
+
+---
+
+### 三、什么时候会 OOM（"用满就挂"是错的）
+
+**⚠️ 这是最常见的误解：堆用到 100% 不一定挂。**
+
+**真实过程是这样的：**
+
+```
+堆快满了
+   ↓
+触发 GC（垃圾回收），把没用的对象清掉
+   ↓
+腾出空间 → 继续正常干活 ✅
+   ↓
+如果 GC 怎么回收都腾不出足够的空间
+   ↓
+OutOfMemoryError → 应用报错 / 卡死 / 退出 ❌
+```
+
+**⭐ 所以准确的说法是：**
+
+> **堆涨到上限，而且 GC 怎么回收都腾不出空间了，才会 OOM。**
+
+**为什么这个区别重要？**
+
+**因为一个健康的应用，堆使用率长期在 70%~90% 是常态。**
+
+你如果以为"用满就挂"，看到别人的应用堆用到 90% 还跑得好好的，就会以为监控不准。
+
+**真正该担心的状态是：**
+
+| 状态 | 说明 |
+|---|---|
+| 堆使用率 70%~90%，**GC 后能降下来** | ✅ 正常 |
+| 堆使用率**一直贴着上限**，GC 后降不下来 | ⚠️ **危险，快 OOM 了** |
+| 堆使用率**一直涨不降** | ⚠️ **内存泄漏** |
+| GC 次数**突然飙升** | ⚠️ 堆不够，或泄漏 |
+
+**OOM 的几种类型（看报错信息区分）：**
+
+| 报错 | 含义 | 常见原因 |
+|---|---|---|
+| `Java heap space` | **堆内存不够** | `-Xmx` 太小，或内存泄漏 |
+| `Metaspace` | 元空间不够 | 加载的类太多（热部署、动态代理） |
+| `GC overhead limit exceeded` | GC 花了 98% 时间却只回收了 2% 内存 | 堆快满了 |
+| `unable to create new native thread` | **创建不了新线程** | 线程数太多，或系统限制 |
+| `Direct buffer memory` | 直接内存不够 | NIO/Netty 用得多 |
+
+**⭐ 我们最常遇到的是第一种：`java.lang.OutOfMemoryError: Java heap space`。**
+
+---
+
+### 四、⚠️ 先分清：是"内存满"还是"磁盘满"
+
+**应用挂了，说"跑满了"，一定要先问清楚：什么满了？**
+
+**因为处理方向完全不同。**
+
+| 什么满了 | 典型现象 | 怎么确认 |
+|---|---|---|
+| **JVM 堆内存** | 日志有 `OutOfMemoryError` | 看日志、看 hprof 文件 |
+| **服务器物理内存** | 整机卡死，别的程序也慢 | 看系统内存占用、Linux 看 OOM Killer |
+| **磁盘空间** | 写文件失败、"设备上没有空间" | 看磁盘剩余空间 |
+
+**⚠️ 对网盘类系统，"磁盘满"和"内存满"都很常见**，别想当然。
+
+#### 4.1 查"JVM 堆内存"是不是满了
+
+```powershell
+# ① 日志里搜 OutOfMemoryError
+Get-Content "D:\server\apache-tomcat-9.0.87-WebDisk\logs\catalina.*.log" | Select-String "OutOfMemoryError"
+```
+
+**看到这个就是堆不够了：**
+
+```
+java.lang.OutOfMemoryError: Java heap space
+```
+
+```powershell
+# ② 有没有生成 heap dump 文件（前提是配了 HeapDumpOnOutOfMemoryError）
+Get-ChildItem "D:\" -Recurse -Filter "java_pid*.hprof" -ErrorAction SilentlyContinue |
+    Select-Object FullName, @{N='大小MB';E={[math]::Round($_.Length/1MB,1)}}, LastWriteTime
+```
+
+**有 `.hprof` 文件 = 当时真的 OOM 了。**
+
+```bash
+# Linux 版本
+grep -r "OutOfMemoryError" /opt/server/*/logs/ 2>/dev/null | tail -20
+find / -name "java_pid*.hprof" 2>/dev/null | head
+```
+
+#### 4.2 查"服务器物理内存"是不是满了
+
+```powershell
+# Windows：看内存使用率
+Get-CimInstance Win32_OperatingSystem |
+    Select-Object @{N='总内存GB';E={[math]::Round($_.TotalVisibleMemorySize/1MB,1)}},
+                  @{N='可用GB';E={[math]::Round($_.FreePhysicalMemory/1MB,1)}}
+```
+
+```bash
+# Linux：看内存和 OOM Killer 记录
+free -h
+
+# ⭐ 关键：看内核有没有杀过进程
+dmesg -T | grep -i "out of memory"
+dmesg -T | grep -i "killed process"
+# 或者
+journalctl -k | grep -i oom
+```
+
+**⭐ Linux 的 OOM Killer 是什么？**
+
+**当系统物理内存耗尽时，Linux 内核会"挑一个进程杀掉"来救活系统**，这就是 OOM Killer。
+
+**它会在内核日志里留记录**，典型的样子：
+
+```
+Out of memory: Killed process 12345 (java) total-vm:8192000kB, anon-rss:6291456kB
+```
+
+**⭐ 这句话包含的信息很关键：**
+
+| 字段 | 含义 |
+|---|---|
+| `Killed process 12345` | 被杀的是 12345 号进程 |
+| `(java)` | 是 Java 进程 |
+| `anon-rss:6291456kB` | 它当时**实际占了约 6GB 物理内存** |
+
+**如果看到这条，说明这台机器物理内存真的不够了——不是 JVM 配置问题，是机器资源问题。**
+
+#### 4.3 查"磁盘"是不是满了
+
+```powershell
+# Windows
+Get-PSDrive -PSProvider FileSystem | Select-Object Name,
+    @{N='已用GB';E={[math]::Round($_.Used/1GB,1)}},
+    @{N='剩余GB';E={[math]::Round($_.Free/1GB,1)}}
+```
+
+```bash
+# Linux
+df -h
+```
+
+**⭐ 网盘系统要特别注意这个。**
+
+**日志目录也是磁盘杀手：**
+
+```powershell
+# 看哪个目录最占空间
+Get-ChildItem "D:\server" -Directory |
+    ForEach-Object {
+        $size = (Get-ChildItem $_.FullName -Recurse -File -ErrorAction SilentlyContinue |
+                 Measure-Object -Property Length -Sum).Sum
+        [PSCustomObject]@{ 目录 = $_.Name; 大小MB = [math]::Round($size/1MB,1) }
+    } | Sort-Object 大小MB -Descending | Select-Object -First 10
+```
+
+**这段 PowerShell 拆开看：**
+
+| 部分 | 作用 |
+|---|---|
+| `Get-ChildItem "D:\server" -Directory` | 列出子目录 |
+| `ForEach-Object { ... }` | 对每个目录算总大小 |
+| `Get-ChildItem $_.FullName -Recurse -File` | 递归列出文件 |
+| `Measure-Object -Property Length -Sum` | **对 Length 字段求和** |
+| `Sort-Object 大小MB -Descending` | 按大小降序 |
+| `Select-Object -First 10` | 取前 10 个 |
+
+**⭐ `Measure-Object -Sum` 是 PowerShell 里"求和"的标准做法**，配合 `-Property` 指定要累加的字段。
+
+---
+
+### 五、⭐⭐ 用监控定位：这次宕机到底是不是内存问题
+
+**前面几节是"没有监控时怎么查"。这一节是"有了监控之后怎么查"——快得多、准得多。**
+
+#### 5.1 看堆使用是不是贴着上限
+
+```
+SigNoz → 指标 → 搜索：jvm_memory_bytes_used
+过滤：area = heap
+过滤：service.name = '你的服务编码'
+时间范围：调到【宕机前 1 小时】
+```
+
+**然后叠加看上限：**
+
+```
+再搜一个：jvm_memory_bytes_max
+过滤：area = heap
+```
+
+**判断：**
+
+| 看到什么 | 结论 |
+|---|---|
+| `used` **贴着 `max`**，然后曲线断了（没数据了） | ✅ **确认：堆不够，OOM 了** |
+| `used` 一直很低（比如上限的 30%） | ❌ **不是内存问题，去查磁盘** |
+| `used` 平稳但在某个时刻突然归零 | 应用重启了（重启后指标从头开始） |
+
+**⭐ "曲线断了"这个特征很重要。**
+
+**应用挂掉后，JMX agent 也一起没了，所以 9999 端口不再提供数据 → 平台上的曲线就断了。**
+
+#### 5.2 顺便验证"配置有没有生效"
+
+**这个能直接看出 `-Xmx` 到底是多少：**
+
+```
+搜索：jvm_memory_bytes_max
+过滤：area = heap
+```
+
+| 看到的值 | 含义 |
+|---|---|
+| `1.61E9` 左右 | = 1536 MB → **`-Xmx1536m` 生效了** |
+| `7.63E9` 左右 | = 7.63 GB → **默认值（物理内存 1/4），配置没生效** |
+| 其他值 | 换算一下：`值 ÷ 1048576` = MB |
+
+**⭐ 这个技巧特别有用。**
+
+我们实测过：某台 32GB 内存的服务器上，一个 Tomcat 没配 `-Xmx`，**默认吃到了 7.63 GB** —— 这就是"物理内存 1/4"的结果。
+
+**如果这台机器上有 3~4 个 Tomcat，那就是 23~30 GB 的潜在堆占用，机器早就超卖了。**
+
+**所以"限制 `-Xmx`"这件事本身是对的、必要的。** 问题只在于**限制到多少**。
+
+#### 5.3 看 GC 有没有异常
+
+```
+搜索：jvm_gc_collection_seconds_count
+```
+
+**⚠️ 这是"累计值"，直接看是一条一直上升的直线，没信息量。**
+
+**要看"速率"，加 `rate()`：**
+
+```
+rate(jvm_gc_collection_seconds_count[5m])
+```
+
+**含义：过去 5 分钟的平均每秒增长率。**
+
+| 看到什么 | 结论 |
+|---|---|
+| 平稳的小数值 | 正常 |
+| **突然飙升** | ⚠️ 堆不够（GC 拼命回收）或内存泄漏 |
+| **到宕机前持续高位** | ⚠️ **强证据：内存不够** |
+
+#### 5.4 看进程实际占用
+
+```
+搜索：process_resident_memory_bytes
+```
+
+**这个和 `jvm_memory_bytes_used` 对比着看：**
+
+- 如果 `process_resident_memory_bytes` 明显大于 `jvm_memory_bytes_used` → **符合预期**（堆只占一部分）
+- 如果它接近机器的物理内存 → **要警惕物理内存耗尽**
+
+---
+
+### 六、怎么给 JVM 定内存值（别一刀切）
+
+#### 6.1 第一步：搞清楚"现在是多少、实际用多少"
+
+**① 当前配置值**（`-Xmx` 到底是多少）
+
+```powershell
+# 从启动日志里看（Tomcat 启动时会打印所有 JVM 参数）
+Get-Content "D:\server\apache-tomcat-9.0.87-WebDisk\logs\catalina.*.log" | Select-String "Xmx"
+```
+
+```bash
+# 或者问正在跑的 JVM（最权威）
+jinfo -flag MaxHeapSize <PID>
+# 输出：-XX:MaxHeapSize=1610612736
+# 换算：1610612736 ÷ 1024 ÷ 1024 = 1536 MB
+```
+
+**② 实际用了多少**（看监控的峰值）
+
+```
+SigNoz → 搜索 jvm_memory_bytes_used
+过滤：area = heap
+时间范围：最近 7 天
+看曲线的【最高点】
+```
+
+**③ 有没有 OOM 历史**
+
+```
+搜索：jvm_memory_bytes_used 的曲线有没有"突然断掉又接上"的痕迹
+```
+
+**每次断掉又接上，就是一次应用重启**（可能是崩了、也可能是正常重启）。
+
+#### 6.2 第二步：按公式定值
+
+**单应用：**
+
+```
+建议 -Xmx  =  近 7 天堆内存峰值 × 1.5
+```
+
+| 峰值 | 建议 `-Xmx` |
+|---|---|
+| 300 MB | 768m |
+| 800 MB | 1536m |
+| 2 GB | 3072m |
+| **3 GB** | **4096m（别降到 1536m！）** |
+
+**全机器：**
+
+```
+这台机器上所有 JVM 的 -Xmx 之和  ≤  物理内存 × 50%
+```
+
+**剩下的 50% 要给**：操作系统、Metaspace、线程栈、直接内存、以及别的程序。
+
+| 物理内存 | 同机 JVM 数 | 单个建议上限 |
+|---|---|---|
+| 8 GB | 1 | 2~3 GB |
+| 8 GB | 2 | 1.5 GB |
+| 16 GB | 2 | 3 GB |
+| 16 GB | 4 | 2 GB |
+| 32 GB | 4 | 4 GB |
+
+**查机器物理内存：**
+
+```powershell
+Get-CimInstance Win32_ComputerSystem |
+    Select-Object @{N='总内存GB';E={[math]::Round($_.TotalPhysicalMemory/1GB,1)}}
+```
+
+```bash
+free -h
+```
+
+#### 6.3 ⚠️ 三个必须加的参数
+
+```bat
+rem ① OOM 时自动导出内存快照（不加的话下次还是只能猜）
+set "CATALINA_OPTS=%CATALINA_OPTS% -XX:+HeapDumpOnOutOfMemoryError"
+set "CATALINA_OPTS=%CATALINA_OPTS% -XX:HeapDumpPath=D:\logs\heapdump"
+
+rem ② 限制 Metaspace 上限（JDK8 默认无上限，可能涨到几百 MB）
+set "CATALINA_OPTS=%CATALINA_OPTS% -XX:MaxMetaspaceSize=512m"
+```
+
+**⭐ 为什么一定要加 heap dump？**
+
+**因为 OOM 的时候，你需要知道"是谁把内存吃光的"。**
+
+**heap dump 就是那个时刻的"内存快照"**，用 Eclipse MAT 之类的工具打开，能看到：
+
+- 哪个类的对象最多
+- 哪个对象占了最大的内存
+- 对象之间的引用链（谁持有它，导致它没法被回收）
+
+**没有 dump，你只能猜；有了 dump，能直接看出根因。**
+
+**⚠️ 但要注意：**
+
+| 注意点 | 说明 |
+|---|---|
+| **会暂停应用** | 导出 dump 时 JVM 会"冻结"（几秒到几分钟，取决于堆大小） |
+| **文件很大** | dump 文件大小 ≈ 堆大小（1.5GB 堆 → 1.5GB 文件） |
+| **要确保磁盘有空间** | 别因为写 dump 把磁盘写满了，那就是二次事故 |
+| **事后要清理** | dump 文件不会自动删，堆几个 G 很占地方 |
+
+**⭐ 额外可选：让 JVM 在 OOM 时直接退出**
+
+```bat
+set "CATALINA_OPTS=%CATALINA_OPTS% -XX:+ExitOnOutOfMemoryError"
+```
+
+**它的作用**：OOM 时**直接杀掉 JVM 进程**，而不是"半死不活地撑着"。
+
+**好处**：如果是 systemd / Windows 服务托管，进程退出后**会自动重启**，业务恢复得快。
+
+**坏处**：如果是手工启动的，进程就没了，得人工拉起来。
+
+**⭐ 判断依据**：**你的应用有自动重启机制吗？**
+
+- 有（systemd / NSSM / 服务）→ **建议加**，快速自愈
+- 没有（手工 `startup.bat`）→ **不加**，让它撑着总比直接死好（虽然撑着的状态通常也不可用）
+
+---
+
+### 七、事故复盘：一次网盘系统的宕机
+
+**记录一次真实的事故分析过程，作为这一节的收尾。**
+
+#### 7.1 背景
+
+- 某网盘系统（WebDisk），部署在 Tomcat 上
+- 有人给它的 `setenv.bat` 加了内存限制：
+
+```bat
+set "CATALINA_OPTS=%CATALINA_OPTS% -Xms512m"
+set "CATALINA_OPTS=%CATALINA_OPTS% -Xmx1536m"
+```
+
+- **出发点是好的**：因为 JVM 默认 `-Xmx` = 物理内存 1/4，一台 32GB 机器上跑 3~4 个 Tomcat，默认值加起来直接超卖
+- **但结果**：某天业务高峰，**系统宕了**
+
+#### 7.2 分析过程（照第二节到第五节走）
+
+**第 1 步：确认是"什么"满了**
+
+```powershell
+Get-Content "...\logs\catalina.*.log" | Select-String "OutOfMemoryError"
+```
+
+**→ 命中了 `java.lang.OutOfMemoryError: Java heap space`**
+
+**结论：是 JVM 堆内存不够。**
+
+**第 2 步：看监控，确认堆是不是贴着上限**
+
+```
+SigNoz → jvm_memory_bytes_used（area=heap）
+时间调到宕机前 1 小时
+```
+
+**→ 看到堆使用曲线一路攀升，最后贴着上限，然后曲线断了（应用挂了）**
+
+**第 3 步：看上限是多少**
+
+```
+jvm_memory_bytes_max（area=heap）  →  1.61E9 = 1536 MB
+```
+
+**→ 说明 `-Xmx1536m` 生效了。**
+
+**第 4 步：看原来是多少**
+
+**查启动日志、问应用负责人 → 原来配的是 `-Xmx4096m`（4GB）。**
+
+#### 7.3 结论
+
+> **把最大堆从 4GB 砍到 1.5GB，砍掉了 62%。**
+> **业务高峰时堆用超了 1.5GB，GC 回收不出空间，直接 OOM，应用挂掉。**
+
+**⭐ 这就是"一刀切设 1536m"的代价。**
+
+**它的错误不在于"限制内存"这个思路（思路是对的），而在于：**
+
+| 错误 | 说明 |
+|---|---|
+| ❌ 没有先看"原来配多少、实际用多少" | 如果原来是 4GB、峰值 3GB，砍到 1.5GB 必然出事 |
+| ❌ 没有考虑业务波动 | 平时用 800MB，高峰可能用 3GB |
+| ❌ 没有加 heap dump 参数 | 出事了只能靠推断，看不到现场 |
+| ❌ 没有先在测试环境验证 | 直接上生产 |
+
+#### 7.4 正确的做法
+
+```
+① 先查每个应用当前的 -Xmx 和近 7 天的堆内存峰值
+      ↓
+② 按「峰值 × 1.5」定单应用的值
+      ↓
+③ 按「所有 JVM 之和 ≤ 物理内存 × 50%」校验总量
+      ↓
+④ 加上 heap dump 参数
+      ↓
+⑤ 在测试环境跑一周，确认没问题
+      ↓
+⑥ 上生产，并且【观察一周】内存和 GC 曲线
+```
+
+**⭐ 最关键的是第 6 步："改完不是结束，是观察的开始"。**
+
+**内存配置改小了，风险是"过一段时间才暴露"的**——平时没事，一到业务高峰就崩。**所以改完必须盯一段时间的监控曲线。**
+
+**而这正是我们装监控的意义所在。**
+
+---
+
+### 八、⭐ 监控 agent 自己也会占堆内存
+
+**这一点很容易被忽略，但在"堆只有 1536m"的情况下，可能就是压垮骆驼的最后一根稻草。**
+
+**`opentelemetry-javaagent` 是跑在应用进程内部的**，它会把要发送的数据**先缓存在堆里**，等攒够一批再发。
+
+**所以如果这三样都开着：**
+
+```bat
+-Dotel.traces.exporter=otlp        ← 链路
+-Dotel.logs.exporter=otlp          ← 日志
+（-Dotel.metrics.exporter 默认也是 otlp） ← 指标
+```
+
+**那就是三种数据同时在堆里排队。**
+
+**⚠️ 更糟的情况：网络不通时**
+
+```
+数据发不出去
+   ↓
+一直堆在内存队列里
+   ↓
+堆内存被占住
+   ↓
+应用能用的堆更少 → 更容易 OOM
+```
+
+**⭐ 建议：既然已经用 JMX agent 采 JVM 指标了，就把 OTel agent 的指标和日志关掉。**
+
+```bat
+rem 日志先关（日志量可能比链路还大）
+set "CATALINA_OPTS=%CATALINA_OPTS% -Dotel.logs.exporter=none"
+
+rem 关掉 OTel 自带的指标（已经有 JMX agent 了，会重复）
+set "CATALINA_OPTS=%CATALINA_OPTS% -Dotel.metrics.exporter=none"
+
+rem 采样率必须配（默认 100% 全采，数据量和内存占用都会上去）
+set "CATALINA_OPTS=%CATALINA_OPTS% -Dotel.traces.sampler=parentbased_traceidratio"
+set "CATALINA_OPTS=%CATALINA_OPTS% -Dotel.traces.sampler.arg=0.1"
+```
+
+**⭐ 注意：这几行都不影响业务逻辑，但能明显减少 agent 占用的堆内存和平台存储。**
+
+---
+
+### 九、速查：内存 / OOM 相关命令
+
+**查当前 JVM 的内存配置**
+
+| 目的 | Linux | Windows |
+|---|---|---|
+| 看启动参数里的 `-Xmx` | `ps -ef \| grep java` | `Get-Content "…\logs\catalina.*.log" \| Select-String "Xmx"` |
+| **问正在跑的 JVM**（最权威） | `jinfo -flag MaxHeapSize <PID>` | `& "jdk\bin\jinfo.exe" -flag MaxHeapSize <PID>` |
+| 看 JVM 内存实时分布 | `jstat -gc <PID>` | `& "jdk\bin\jstat.exe" -gc <PID>` |
+| 看进程实际占用 | `ps -o rss= -p <PID>` | `Get-Process -Id <PID> \| Select-Object WorkingSet64` |
+
+**⭐ `jinfo -flag MaxHeapSize <PID>` 的输出换算：**
+
+```
+-XX:MaxHeapSize=1610612736
+                 ↓  ÷ 1024 ÷ 1024
+              1536 MB
+```
+
+**查 OOM 证据**
+
+| 目的 | 命令 |
+|---|---|
+| 搜 OOM 日志（Linux） | `grep -r "OutOfMemoryError" /opt/server/*/logs/ \| tail -20` |
+| 搜 OOM 日志（Windows） | `Get-Content "…\logs\catalina.*.log" \| Select-String "OutOfMemoryError"` |
+| 找 heap dump 文件 | `find / -name "java_pid*.hprof"` / `Get-ChildItem "D:\" -Recurse -Filter "java_pid*.hprof"` |
+| **看内核有没有杀进程**（Linux） | `dmesg -T \| grep -i "killed process"` |
+
+**查机器资源**
+
+| 目的 | Linux | Windows |
+|---|---|---|
+| 物理内存 | `free -h` | `Get-CimInstance Win32_OperatingSystem \| Select-Object TotalVisibleMemorySize,FreePhysicalMemory` |
+| 磁盘空间 | `df -h` | `Get-PSDrive -PSProvider FileSystem` |
+
+**在 SigNoz 里查**
+
+| 想看什么 | 指标 |
+|---|---|
+| 堆用了多少 | `jvm_memory_bytes_used`（过滤 `area=heap`） |
+| 堆的上限 | `jvm_memory_bytes_max`（过滤 `area=heap`） |
+| 进程实际占用 | `process_resident_memory_bytes` |
+| GC 频率 | `rate(jvm_gc_collection_seconds_count[5m])` |
+| 非堆内存 | `jvm_memory_bytes_used`（过滤 `area=nonheap`） |
+
+---
+
+### 十、写在最后：内存这件事，宁大勿小
+
+**这一节如果只能记住一句话，那就是：**
+
+> **内存配小了，平时看不出来，一到业务高峰就崩。**
+> **而崩的时候，往往是最不能崩的时候。**
+
+**所以定内存值的态度应该是：**
+
+| 态度 | 说明 |
+|---|---|
+| **宁大勿小** | 多留 50% 余量，代价是内存占用；留少了，代价是宕机 |
+| **先看数据再改** | 别凭感觉、别一刀切，先看近 7 天的峰值 |
+| **算总量** | 单机所有 JVM 之和 ≤ 物理内存 × 50% |
+| **一定要有 dump** | 不然出事了只能猜 |
+| **改完要观察** | 内存问题的暴露有延迟，改完盯一周 |
+| **能自动重启就配上** | 真崩了，自动拉起比人工快 |
+
+**⭐ 最后回到那句话：**
+
+**为什么我们要花那么大力气装应用监控？**
+
+**因为"应用挂了"这件事，如果只有现象（用户说慢了、宕了），没有数据（当时的堆、GC、线程是多少），你就只能靠猜。**
+
+**而猜，是需要运气的。监控，是把运气变成证据。**
+
+---
+
 ## 附：这次工作的最终成果清单
 
 **监控覆盖：**
